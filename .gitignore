@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+venv/
+.env
+
+# Database (We'll use Postgres, but keep this for safety)
+*.sqlite3
+
+# macOS system files
+.DS_Store
