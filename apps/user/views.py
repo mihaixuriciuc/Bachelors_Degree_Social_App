@@ -6,19 +6,18 @@ from .models import User
 from .serializers import UserSerializer
 
 @api_view(['GET'])
-def getUserJson(request):
+def getAllUsers(request):
     users = User.objects.all()
     serializer = UserSerializer(users, many=True)
-    return Response(serializer.data) # This sends the JSON!
+    return Response(serializer.data)
 
 @api_view(['POST'])
-def createUser(request):
+def singUpUser(request):
     serializer = UserSerializer(data=request.data)
     if serializer.is_valid():
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 

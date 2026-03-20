@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 
 # Environments
-venv/
+.venv/
 .env
 
 # Database (We'll use Postgres, but keep this for safety)

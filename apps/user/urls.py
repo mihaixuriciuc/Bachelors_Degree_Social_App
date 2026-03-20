@@ -3,6 +3,7 @@ from apps.user import views
 
 
 urlpatterns = [
-    path('all/',views.getUserJson,name='all'),
-    path('singUp/' , views.createUser,name='singUp')
+    path('all/',views.getAllUsers,name='all'),
+    path('singUp/' , views.singUpUser,name='singUp'),
+
 ]
