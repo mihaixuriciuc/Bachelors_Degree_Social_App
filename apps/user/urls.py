@@ -3,7 +3,7 @@ from apps.user import views
 
 
 urlpatterns = [
-    path('all/',views.getAllUsers,name='all'),
-    path('singUp/' , views.singUpUser,name='singUp'),
+    path('all',views.getAllUsers,name='all'),
+    path('singUp' , views.singUpUser,name='singUp'),
 
 ]
