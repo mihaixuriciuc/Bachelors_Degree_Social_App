@@ -5,7 +5,7 @@ __pycache__/
 
 # Environments
 .venv/
-.env
+backend/.env
 
 # Database (We'll use Postgres, but keep this for safety)
 *.sqlite3

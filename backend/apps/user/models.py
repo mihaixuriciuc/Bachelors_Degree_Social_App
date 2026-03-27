@@ -1,8 +1,6 @@
 from django.db import models #the database methods
 from django.contrib.auth.models import AbstractUser #the security methods
 
-from config import settings
-
 
 # Create your models here.
 
