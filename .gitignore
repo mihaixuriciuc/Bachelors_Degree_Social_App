@@ -1,17 +1,30 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Environments
-.venv/
-backend/.env
-
-# Database (We'll use Postgres, but keep this for safety)
-*.sqlite3
-
-# macOS system files
+# --- OS & IDEs ---
 .DS_Store
-
-#fisiere degeaba
 .idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# --- BACKEND (Django) ---
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/.venv/
+backend/.env
+backend/*.sqlite3
+
+# --- FRONTEND (React/Vite) ---
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+frontend/logs/
+frontend/*.log
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
