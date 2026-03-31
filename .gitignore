@@ -16,6 +16,8 @@ backend/*$py.class
 backend/.venv/
 backend/.env
 backend/*.sqlite3
+__pycache__/
+*.pyc
 
 # --- FRONTEND (React/Vite) ---
 frontend/node_modules/
