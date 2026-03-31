@@ -1,5 +1,5 @@
 """
-URL configuration for core project.
+URL configuration for config project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/6.0/topics/http/urls/
@@ -16,8 +16,13 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.urls import path, include
+from rest_framework_simplejwt import views as jwt_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('accounts.urls')),   # include blog app
+    path('api/v1/', include('apps.user.urls')),
+    path('api/v1/signin/', jwt_views.TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/v1/signin/refresh/', jwt_views.TokenRefreshView.as_view(), name='token_refresh'),
+
 ]
