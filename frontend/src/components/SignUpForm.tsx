@@ -1,11 +1,12 @@
 import React from "react";
-import SubmitAction from "./SubmitAction";
+import SubmitAction from "../helpers/SubmitAction";
 
 function SignUpForm() {
+  const apiUrl = import.meta.env.API_URL;
   return (
     <form
       method="post"
-      onSubmit={SubmitAction}
+      onSubmit={(e) => SubmitAction(e, "http://127.0.0.1:8000/api/v1/signup")}
       className="d-flex flex-column m-3"
     >
       <input
