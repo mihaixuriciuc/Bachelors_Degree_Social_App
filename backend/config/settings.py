@@ -45,12 +45,13 @@ INSTALLED_APPS = [
     'rest_framework',
     'apps.user', # this is mine, the first app
     'corsheaders',
+    'apps.posts',
 
 ]
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'apps.user.authentication.CustomCookieAuthentication',
 
     ),
     'DEFAULT_PERMISSION_CLASSES': (
@@ -143,7 +144,27 @@ STATIC_URL = 'static/'
 
 AUTH_USER_MODEL = 'user.User'
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+CORS_ALLOW_CREDENTIALS = True
+
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
+
+
+
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    # How long the "Working" token lasts (e.g., for Axios calls)
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=30),
+
+    # How long before the user is FORCED to log in again
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+}

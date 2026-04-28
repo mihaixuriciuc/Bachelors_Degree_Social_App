@@ -5,15 +5,15 @@ async function SubmitAction(e: React.FormEvent<HTMLFormElement>, url: string) {
   const formData = new FormData(form); // get the data from the form
 
   const formJson = Object.fromEntries(formData.entries()); // create the json format
-  console.log(formJson);
   try {
     const jsonString = JSON.stringify(formJson); //this is used so i can send the data as a web string
-    const requestData = {
+    const requestData: RequestInit = {
       method: "POST",
       headers: {
         "Content-Type": "application/json", // aparently this is the standard, it has to be in woutoes because it has the line
       },
       body: jsonString,
+      credentials: "include",
     };
 
     const connection = await fetch(url, requestData);

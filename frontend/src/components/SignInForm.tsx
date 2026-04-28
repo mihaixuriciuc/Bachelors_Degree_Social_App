@@ -5,7 +5,7 @@ function SignInForm() {
   return (
     <form
       action="post"
-      onSubmit={(e) => SubmitAction(e, "http://127.0.0.1:8000/api/v1/signin/")}
+      onSubmit={(e) => SubmitAction(e, "http://127.0.0.1:8000/api/v1/signIn")}
       className="d-flex flex-column m-3"
     >
       <input
