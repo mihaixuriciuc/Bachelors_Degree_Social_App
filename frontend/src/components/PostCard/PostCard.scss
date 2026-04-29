@@ -1,0 +1,137 @@
+@use "../../styles/variables" as *;
+
+.post-card {
+  background: $white;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .post-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 15px;
+    font-size: 0.85rem;
+
+    .author {
+      font-weight: 700;
+      color: $primary-color;
+    }
+
+    .date {
+      color: $text-muted;
+    }
+  }
+
+  .post-title {
+    font-size: 1.25rem;
+    margin-bottom: 10px;
+    color: $text-dark;
+  }
+
+  .post-content {
+    line-height: 1.5;
+    color: #444;
+  }
+
+  .post-footer {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 15px;
+
+    // Add this inside .post-footer .btn-action
+    .btn-action {
+      background: none;
+      border: none;
+      color: $text-muted;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.9rem;
+
+      &:hover {
+        color: $primary-color;
+      }
+
+      transition:
+        color 0.2s ease,
+        transform 0.1s ease;
+
+      &:active {
+        transform: scale(0.95); // Gives a nice "click" animation
+      }
+
+      &.liked {
+        color: #e0245e; // Twitter/X like red
+        font-weight: bold;
+      }
+    }
+
+    // Add this below the .post-footer block
+  }
+  .comment-form {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 10x dashed #eee;
+    display: flex;
+    gap: 10px;
+
+    .comment-input {
+      flex: 1;
+      padding: 10px 15px;
+      border: 1px solid #ddd;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.3s;
+
+      &:focus {
+        border-color: $primary-color;
+      }
+    }
+
+    .btn-submit-comment {
+      background-color: $primary-color;
+      color: white;
+      border: none;
+      padding: 0 15px;
+      border-radius: 20px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.3s;
+
+      &:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+
+      &:not(:disabled):hover {
+        background-color: darken($primary-color, 10%);
+      }
+    }
+  }
+
+  .post-image-container {
+    margin-top: 15px;
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: #f8f9fa; // Slight gray background while loading
+    border: 1px solid #eee;
+
+    .post-image {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: cover;
+      max-height: 500px; // Prevents very tall vertical images from taking over the screen
+    }
+  }
+}

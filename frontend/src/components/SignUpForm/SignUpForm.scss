@@ -1,0 +1,56 @@
+@import "../../styles/variables";
+
+.signup-form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+
+  .form-input {
+    padding: $input-padding;
+    border: 1px solid #ddd;
+    border-radius: $border-radius;
+    margin-bottom: 1rem;
+    font-size: 0.95rem;
+
+    &:focus {
+      border-color: $primary-color;
+      outline: none;
+    }
+  }
+
+  // Name row using CSS Grid
+  .name-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .form-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 1rem;
+
+    .btn-signup {
+      background-color: $primary-color;
+      color: $white;
+      padding: 14px;
+      border: none;
+      border-radius: $border-radius;
+      font-weight: 700;
+      cursor: pointer;
+      &:hover {
+        background-color: $primary-hover;
+      }
+    }
+
+    .btn-clear {
+      background: none;
+      border: 1px solid #ddd;
+      padding: 8px;
+      border-radius: $border-radius;
+      color: $text-muted;
+      cursor: pointer;
+    }
+  }
+}

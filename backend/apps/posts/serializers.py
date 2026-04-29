@@ -8,9 +8,10 @@ from rest_framework import serializers
 class PostSerializer(serializers.ModelSerializer):
     likes_count = serializers.SerializerMethodField()
     comments_count = serializers.SerializerMethodField()
+    is_liked = serializers.SerializerMethodField()
     class Meta:
         model = Post
-        fields = ['id','author','title','content','created_at','image','likes_count','comments_count']
+        fields = ['id','author','title','content','created_at','image','likes_count','comments_count','is_liked']
 
     author = serializers.ReadOnlyField(source='author.username')
     """on this one i have to write a little because im just starting to understand how this works
@@ -39,12 +40,22 @@ class PostSerializer(serializers.ModelSerializer):
     def get_comments_count(self, post):
         return post.comments.count()
 
+    def get_is_liked(self, obj):
+        # Grab the user making the request from the context
+        request = self.context.get('request')
+
+        # If they are logged in, check if a Like exists for them on this post
+        if request and request.user.is_authenticated:
+            return Like.objects.filter(post=obj, author=request.user).exists()
+
+        return False
+
 
 class CommentSerializer(serializers.ModelSerializer):
     author = serializers.ReadOnlyField(source='author.username')
     class Meta:
         model = Comment
-        fields = ['id', 'author','comment', 'created_at']
+        fields = ['id', 'author','content', 'created_at']
 
     def validate(self, data):
         user = self.context['request'].user
@@ -61,20 +72,21 @@ class CommentSerializer(serializers.ModelSerializer):
 
 
 class LikeSerializer(serializers.ModelSerializer):
-    user = serializers.ReadOnlyField(source='author.username')
+    author = serializers.ReadOnlyField(source='author.username')
     class Meta:
         model = Like
-        fields = ['id','author', 'post','created_at']
+        fields = ['id','author', 'post_id','created_at']
+
+        read_only_fields = ['post_id']
 
     def validate(self, data):
         user = self.context['request'].user
-        post = data['post']
 
         # set a variable for the time of the comment an hour ago
         hour_beginning = timezone.now() - timedelta(hours=1)
 
-        # count all the cooments left by an user that happened after an hour ago, if there are more than 20 raise error
-        count = Comment.objects.filter(author=user, created_at__gte=hour_beginning).count()
+        # count all the likes left by an user that happened after an hour ago, if there are more than 20 raise error
+        count = Like.objects.filter(author=user, created_at__gte=hour_beginning).count()
 
         if count >= 300:
             raise serializers.ValidationError('Take a break bro')

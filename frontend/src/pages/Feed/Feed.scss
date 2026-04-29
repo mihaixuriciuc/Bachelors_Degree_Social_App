@@ -1,0 +1,51 @@
+@use "../../styles/variables" as *;
+
+.feed-page {
+  background-color: $bg-light;
+  min-height: 100vh;
+
+  .feed-nav {
+    background: $white;
+    padding: 10px 50px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    border-bottom: 1px solid #ddd;
+
+    .logo-small {
+      font-family: monospace;
+      font-weight: 900;
+      color: $primary-color;
+      margin: 0;
+    }
+
+    .btn-logout {
+      background-color: $primary-color;
+      color: $white;
+      padding: 11px;
+      border: none;
+      border-radius: $border-radius;
+      font-weight: 700;
+      cursor: pointer;
+      &:hover {
+        background-color: $primary-hover;
+      }
+    }
+  }
+
+  .feed-content {
+    max-width: 600px;
+    margin: 30px auto;
+    padding: 0 15px;
+  }
+
+  .feed-status,
+  .no-posts {
+    text-align: center;
+    margin-top: 50px;
+    color: $text-muted;
+  }
+}
