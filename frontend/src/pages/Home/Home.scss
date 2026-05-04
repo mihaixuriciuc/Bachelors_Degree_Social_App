@@ -1,0 +1,42 @@
+@import "../../styles/variables";
+
+.home-page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: $bg-light;
+  text-align: center;
+
+  .logo-main {
+    font-size: 5rem;
+    font-weight: 900;
+    font-family: monospace;
+    background: linear-gradient(45deg, $primary-color, #6610f2);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 2rem;
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 20px;
+
+    .btn-link {
+      text-decoration: none;
+      color: $text-dark;
+      border: 2px solid $text-dark;
+      padding: 12px 30px;
+      border-radius: 30px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+
+      &:hover {
+        background-color: $text-dark;
+        color: $white;
+        transform: translateY(-3px);
+      }
+    }
+  }
+}

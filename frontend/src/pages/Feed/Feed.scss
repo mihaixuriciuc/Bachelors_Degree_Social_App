@@ -1,0 +1,72 @@
+@use "../../styles/variables" as *;
+
+.feed-page {
+  background-color: $bg-light;
+  min-height: 100vh;
+
+  .feed-nav {
+    background: $white;
+    padding: 10px 50px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    border-bottom: 1px solid #ddd;
+
+    .logo-small {
+      font-family: monospace;
+      font-weight: 900;
+      color: $primary-color;
+      margin: 0;
+    }
+
+    // ADD THIS BLOCK
+    .nav-actions {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+
+      .btn-profile {
+        text-decoration: none;
+        color: $text-dark;
+        font-weight: 600;
+        padding: 11px 15px;
+        border-radius: $border-radius;
+        transition: background-color 0.2s;
+
+        &:hover {
+          background-color: #eee;
+        }
+      }
+
+      .btn-logout {
+        background-color: $primary-color;
+        color: $white;
+        padding: 11px 20px;
+        border: none;
+        border-radius: $border-radius;
+        font-weight: 700;
+        cursor: pointer;
+        &:hover {
+          background-color: $primary-hover;
+        }
+      }
+    }
+    // END ADDITION
+  }
+
+  .feed-content {
+    max-width: 600px;
+    margin: 30px auto;
+    padding: 0 15px;
+  }
+
+  .feed-status,
+  .no-posts {
+    text-align: center;
+    margin-top: 50px;
+    color: $text-muted;
+  }
+}

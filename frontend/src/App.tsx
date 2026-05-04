@@ -1,18 +1,27 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Home from "./pages/Home";
-import SignUp from "./pages/SignUp";
-import SignIn from "./pages/SignIn";
+import Home from "./pages/Home/Home";
+import SignUp from "./pages/SignUp/SignUp";
+import SignIn from "./pages/SignIn/SignIn";
+import { AuthProvider } from "./context/AuthContext";
+import Feed from "./pages/Feed/Feed";
+import Profile from "./pages/Profile/Profile";
+import CreatePost from "./pages/CreatePost/CreatePost";
 
 function App() {
   return (
-    <BrowserRouter>
-      {/*so the best practice is to leave only the one with "/" if you dont have text */}
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/signup" element={<SignUp />} />
-        <Route path="/signin" element={<SignIn></SignIn>} />
-      </Routes>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        {/*so the best practice is to leave only the one with "/" if you dont have text */}
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/signup" element={<SignUp />} />
+          <Route path="/signin" element={<SignIn></SignIn>} />
+          <Route path="/feed" element={<Feed />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/create-post" element={<CreatePost />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 export default App;

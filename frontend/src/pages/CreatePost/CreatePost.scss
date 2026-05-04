@@ -1,0 +1,106 @@
+@use "../../styles/variables" as *;
+
+.create-post-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: $bg-light;
+  padding: 20px;
+
+  .form-container {
+    background: $white;
+    padding: 40px;
+    border-radius: 15px;
+    box-shadow: $shadow;
+    width: 100%;
+    max-width: 500px;
+
+    h1 {
+      color: $primary-color;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 25px;
+    }
+
+    .error-message {
+      color: $error-color;
+      text-align: center;
+      margin-bottom: 15px;
+    }
+
+    .create-post-form {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+
+      .input-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+
+        label {
+          font-weight: 600;
+          color: $text-dark;
+          font-size: 0.95rem;
+        }
+
+        input[type="text"],
+        textarea {
+          padding: $input-padding;
+          border: 1px solid #ddd;
+          border-radius: $border-radius;
+          font-size: 1rem;
+          font-family: inherit;
+          transition: border-color 0.3s;
+
+          &:focus {
+            border-color: $primary-color;
+            outline: none;
+          }
+        }
+
+        input[type="file"] {
+          font-size: 0.9rem;
+        }
+      }
+
+      .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 15px;
+        margin-top: 10px;
+
+        button {
+          padding: 10px 20px;
+          border-radius: $border-radius;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background-color 0.2s;
+        }
+
+        .btn-cancel {
+          background: none;
+          border: 1px solid #ddd;
+          color: $text-muted;
+          &:hover {
+            background: #f8f9fa;
+          }
+        }
+
+        .btn-submit {
+          background-color: $primary-color;
+          color: $white;
+          border: none;
+          &:hover {
+            background-color: $primary-hover;
+          }
+          &:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+          }
+        }
+      }
+    }
+  }
+}
