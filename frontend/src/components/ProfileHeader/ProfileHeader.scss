@@ -1,0 +1,72 @@
+@use "../../styles/variables" as *;
+
+.profile-header {
+  display: flex;
+  gap: 30px;
+  align-items: center;
+  background: $white;
+  padding: 30px;
+  border-radius: $border-radius;
+  border: 1px solid #ddd;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  margin-bottom: 30px;
+
+  .profile-picture-container {
+    flex-shrink: 0;
+    .profile-picture {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid $primary-color;
+    }
+  }
+
+  .profile-info {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+
+    .username {
+      font-size: 1.8rem;
+      color: $text-dark;
+      margin: 0;
+    }
+
+    .description {
+      color: #444;
+      line-height: 1.4;
+    }
+
+    .profile-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+
+      button {
+        padding: 8px 16px;
+        border-radius: $border-radius;
+        font-weight: 600;
+        cursor: pointer;
+        border: none;
+        transition: background-color 0.2s ease;
+
+        &.btn-primary {
+          background-color: $primary-color;
+          color: $white;
+          &:hover {
+            background-color: $primary-hover;
+          }
+        }
+
+        &.btn-secondary {
+          background-color: #eee;
+          color: $text-dark;
+          &:hover {
+            background-color: #ddd;
+          }
+        }
+      }
+    }
+  }
+}

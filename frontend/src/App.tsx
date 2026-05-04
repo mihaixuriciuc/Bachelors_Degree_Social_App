@@ -4,6 +4,8 @@ import SignUp from "./pages/SignUp/SignUp";
 import SignIn from "./pages/SignIn/SignIn";
 import { AuthProvider } from "./context/AuthContext";
 import Feed from "./pages/Feed/Feed";
+import Profile from "./pages/Profile/Profile";
+import CreatePost from "./pages/CreatePost/CreatePost";
 
 function App() {
   return (
@@ -15,6 +17,8 @@ function App() {
           <Route path="/signup" element={<SignUp />} />
           <Route path="/signin" element={<SignIn></SignIn>} />
           <Route path="/feed" element={<Feed />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/create-post" element={<CreatePost />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

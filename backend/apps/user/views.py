@@ -5,8 +5,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-
-from .models import User
+from .serializers import ProfileSerializer
+from .models import User, Profile
 from .serializers import UserSerializerSignIn, UserSerializer
 
 
@@ -55,3 +55,18 @@ def signInUser(request):
             return response
         return Response({"detail": "Invalid username or password"}, status=status.HTTP_401_UNAUTHORIZED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def getMyProfile(request):
+    # 'request.user' automatically holds the user who owns the JWT token!
+    user = request.user
+
+    # Find the Profile, or create one if it doesn't exist yet (useful for new signups)
+    profile, created = Profile.objects.get_or_create(user=user)
+
+    # Serialize it and return the Response!
+    serializer = ProfileSerializer(profile)
+    return Response(serializer.data)

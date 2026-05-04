@@ -77,47 +77,6 @@
 
     // Add this below the .post-footer block
   }
-  .comment-form {
-    margin-top: 15px;
-    padding-top: 15px;
-    border-top: 10x dashed #eee;
-    display: flex;
-    gap: 10px;
-
-    .comment-input {
-      flex: 1;
-      padding: 10px 15px;
-      border: 1px solid #ddd;
-      border-radius: 20px;
-      font-size: 0.9rem;
-      outline: none;
-      transition: border-color 0.3s;
-
-      &:focus {
-        border-color: $primary-color;
-      }
-    }
-
-    .btn-submit-comment {
-      background-color: $primary-color;
-      color: white;
-      border: none;
-      padding: 0 15px;
-      border-radius: 20px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: background-color 0.3s;
-
-      &:disabled {
-        background-color: #ccc;
-        cursor: not-allowed;
-      }
-
-      &:not(:disabled):hover {
-        background-color: darken($primary-color, 10%);
-      }
-    }
-  }
 
   .post-image-container {
     margin-top: 15px;

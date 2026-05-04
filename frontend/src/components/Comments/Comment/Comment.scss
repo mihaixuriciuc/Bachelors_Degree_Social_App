@@ -1,0 +1,49 @@
+@use "../../../styles/variables" as *;
+
+.comment-object {
+  background: $white;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .comment-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-size: 0.85rem;
+
+    .author {
+      font-weight: 700;
+      color: $primary-color;
+    }
+
+    .date {
+      color: $text-muted;
+    }
+  }
+
+  .comment-content {
+    line-height: 1.5;
+    color: #444;
+  }
+
+  .post-footer {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 15px;
+
+    // Add this inside .post-footer .btn-actio
+
+    // Add this below the .post-footer block
+  }
+}

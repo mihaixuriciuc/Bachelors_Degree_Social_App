@@ -22,18 +22,39 @@
       margin: 0;
     }
 
-    .btn-logout {
-      background-color: $primary-color;
-      color: $white;
-      padding: 11px;
-      border: none;
-      border-radius: $border-radius;
-      font-weight: 700;
-      cursor: pointer;
-      &:hover {
-        background-color: $primary-hover;
+    // ADD THIS BLOCK
+    .nav-actions {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+
+      .btn-profile {
+        text-decoration: none;
+        color: $text-dark;
+        font-weight: 600;
+        padding: 11px 15px;
+        border-radius: $border-radius;
+        transition: background-color 0.2s;
+
+        &:hover {
+          background-color: #eee;
+        }
+      }
+
+      .btn-logout {
+        background-color: $primary-color;
+        color: $white;
+        padding: 11px 20px;
+        border: none;
+        border-radius: $border-radius;
+        font-weight: 700;
+        cursor: pointer;
+        &:hover {
+          background-color: $primary-hover;
+        }
       }
     }
+    // END ADDITION
   }
 
   .feed-content {

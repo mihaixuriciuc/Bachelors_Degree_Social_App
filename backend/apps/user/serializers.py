@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User
+from .models import User, Profile
 from rest_framework import serializers
 
 class UserSerializer(serializers.ModelSerializer):
@@ -23,3 +23,13 @@ class UserSerializerSignIn(serializers.Serializer):
         write_only=True,
         required=True
     )
+
+
+class ProfileSerializer(serializers.ModelSerializer):
+    # We can add a ReadOnlyField to grab the username from the related User model.
+    # 'user.username' traverses the OneToOneField relationship!
+    username = serializers.ReadOnlyField(source='user.username')
+
+    class Meta:
+        model = Profile
+        fields = ['username', 'bio', 'profile_pic', 'website']

@@ -6,9 +6,4 @@ export const postService = {
 
   unlikePost: (postId: number) => api.delete(`/account/posts/${postId}/likes/`),
 
-  createComment: (postId: number, content: string) =>
-    api.post(`/account/posts/${postId}/comments/`, { content }),
-
-  getComments: (postId: number) =>
-    api.get(`/account/posts/${postId}/comments/`),
 };

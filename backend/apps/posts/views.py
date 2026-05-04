@@ -2,8 +2,9 @@ from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, permissions
 from .models import Post, Comment, Like
 from .serializers import PostSerializer, CommentSerializer, LikeSerializer
-from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
 
 
 # Create your views here.
@@ -72,3 +73,14 @@ class LikeViewSet(viewsets.ModelViewSet):
             return Response(status=status.HTTP_204_NO_CONTENT)
         else:
             return Response({"detail": "You haven't liked this post."}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def getMyPosts(request):
+    # Filter posts to only include those created by the logged-in user
+    user_posts = Post.objects.filter(author=request.user).order_by('-created_at')
+
+    # We pass the request in the context so the Serializer can calculate 'is_liked'
+    serializer = PostSerializer(user_posts, many=True, context={'request': request})
+    return Response(serializer.data)

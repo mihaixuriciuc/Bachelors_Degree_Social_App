@@ -3,16 +3,12 @@ import { useState } from "react";
 import { postService } from "../services/postService";
 import { Post } from "../interfaces/postType";
 import api from "../api/api";
+import { commentService } from "../services/commentService";
 
 export const usePostActions = (post: Post) => {
   // --- STATE FOR LIKES ---
   const [likesCount, setLikesCount] = useState(post.likes_count);
   const [isLiked, setIsLiked] = useState(post.is_liked);
-
-  // --- STATE FOR COMMENTS ---
-  const [showComments, setShowComments] = useState(false);
-  const [commentText, setCommentText] = useState("");
-  const [commentsCount, setCommentsCount] = useState(post.comments_count);
 
   // 1. Handle Like Click
   const handleLike = async () => {
@@ -24,9 +20,9 @@ export const usePostActions = (post: Post) => {
     try {
       // NOTE: Ensure this URL matches your Django urls.py for nested routers!
       if (newLikedState) {
-        await api.post(`/account/posts/${post.id}/likes/`);
+        await postService.likePost(post.id);
       } else {
-        await api.delete(`/account/posts/${post.id}/likes/`);
+        await postService.unlikePost(post.id);
       }
     } catch (error) {
       console.error("Failed to toggle like", error);
@@ -37,35 +33,10 @@ export const usePostActions = (post: Post) => {
   };
 
   // 2. Handle Comment Submit
-  const handleCommentSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!commentText.trim()) return;
-
-    try {
-      // NOTE: Ensure this URL matches your Django urls.py
-      await api.post(`/account/posts/${post.id}/comments/`, {
-        content: commentText, // Ensure this matches your CommentSerializer field
-      });
-
-      setCommentText(""); // Clear the input
-      setCommentsCount((prev) => prev + 1); // Optimistically update count
-    } catch (error) {
-      console.error("Failed to post comment", error);
-    }
-  };
-
-  const handleShowComments = async () => {};
 
   return {
     isLiked,
     likesCount,
-    commentsCount,
-    commentText,
-    setCommentText,
     handleLike,
-    handleCommentSubmit,
-    setCommentsCount,
-    setShowComments,
-    showComments,
   };
 };

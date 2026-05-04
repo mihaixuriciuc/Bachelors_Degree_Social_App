@@ -3,29 +3,30 @@ import api from "../../api/api";
 import "./PostCard.scss";
 import { Post } from "../../interfaces/postType";
 import { usePostActions } from "../../hooks/usePostActions";
+import { useCommentPost } from "../../hooks/useCommentsPost";
+import CommentsTextField from "../Comments/CommentsTextField/CommentsTextField";
+import CommentBox from "../Comments/CommentsBox/CommentsBox";
 
 function PostCard({ post }: { post: Post }) {
   const date = new Date(post.created_at).toLocaleDateString();
 
+  const { isLiked, likesCount, handleLike } = usePostActions(post);
   const {
-    isLiked,
-    likesCount,
+    comments,
+    loading,
     commentsCount,
     commentText,
     setCommentText,
-    handleLike,
     handleCommentSubmit,
-    setCommentsCount,
     setShowComments,
     showComments,
-  } = usePostActions(post);
+  } = useCommentPost(post);
   return (
     <div className="post-card">
       <div className="post-header">
         <span className="author">{post.author}</span>
         <span className="date">{date}</span>
       </div>
-
       <div className="post-body">
         <h2 className="post-title">{post.title}</h2>
         <p className="post-content">{post.content}</p>
@@ -35,7 +36,6 @@ function PostCard({ post }: { post: Post }) {
           </div>
         )}
       </div>
-
       <div className="post-footer">
         {/* Dynamic Class for Liked State */}
         <button
@@ -53,25 +53,17 @@ function PostCard({ post }: { post: Post }) {
           💬 Comment {commentsCount > 0 && `(${commentsCount})`}
         </button>
       </div>
-
-      {/* The Comment Input Box (Toggles on/off) */}
       {showComments && (
-        <form className="comment-form" onSubmit={handleCommentSubmit}>
-          <input
-            type="text"
-            placeholder="Write a comment..."
-            value={commentText}
-            onChange={(e) => setCommentText(e.target.value)}
-            className="comment-input"
+        <div>
+          {/* We pass 'comments' and 'loading' from the useCommentPost hook */}
+          <CommentBox comments={comments} loading={loading} />
+          <CommentsTextField
+            post={post}
+            commentText={commentText}
+            setCommentText={setCommentText}
+            handleCommentSubmit={handleCommentSubmit}
           />
-          <button
-            type="submit"
-            className="btn-submit-comment"
-            disabled={!commentText.trim()}
-          >
-            Post
-          </button>
-        </form>
+        </div>
       )}
     </div>
   );

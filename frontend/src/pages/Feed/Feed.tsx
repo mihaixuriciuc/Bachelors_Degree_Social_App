@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../../api/api";
 import PostCard from "../../components/PostCard/PostCard";
 import "./Feed.scss";
+import { Link } from "react-router-dom"; // ADD THIS IMPORT
 
 function Feed() {
   const [posts, setPosts] = useState([]);
@@ -27,14 +28,21 @@ function Feed() {
     <div className="feed-page">
       <nav className="feed-nav">
         <h1 className="logo-small">DOT8</h1>
-        <button
-          className="btn-logout"
-          onClick={() => {
-            /* handle logout */
-          }}
-        >
-          Log out
-        </button>
+
+        {/* REPLACE existing btn-logout WITH this nav-actions div */}
+        <div className="nav-actions">
+          <Link to="/profile" className="btn-profile">
+            Profile
+          </Link>
+          <button
+            className="btn-logout"
+            onClick={() => {
+              /* handle logout */
+            }}
+          >
+            Log out
+          </button>
+        </div>
       </nav>
 
       <main className="feed-content">

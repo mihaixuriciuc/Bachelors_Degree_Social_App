@@ -48,18 +48,54 @@ src/
   assets/
     react.svg
   components/
-    SignInForm.tsx
-    SignUpForm.tsx
+    Comments/
+      Comment/
+        Comment.scss
+        CommentCard.tsx
+      CommentsBox/
+        CommentsBox.scss
+        CommentsBox.tsx
+      CommentsTextField/
+        CommentsTextField.scss
+        CommentsTextField.tsx
+    PostCard/
+      PostCard.scss
+      PostCard.tsx
+    SignInForm/
+      SignInForm.scss
+      SignInForm.tsx
+    SignUpForm/
+      SignUpForm.scss
+      SignUpForm.tsx
   context/
     AuthContext.tsx
   helpers/
-    SubmitAction.tsx
+    submitAction.ts
   hooks/
-    useAuth.tsx
+    useAuth.ts
+    useCommentsPost.ts
+    usePostActions.ts
+  interfaces/
+    commentType.ts
+    postType.ts
   pages/
-    Home.tsx
-    SignIn.tsx
-    SignUp.tsx
+    Feed/
+      Feed.scss
+      Feed.tsx
+    Home/
+      Home.scss
+      Home.tsx
+    SignIn/
+      SignIn.scss
+      SignIn.tsx
+    SignUp/
+      SignUp.scss
+      SignUp.tsx
+  services/
+    commentService.ts
+    postService.ts
+  styles/
+    _variables.scss
   App.css
   App.tsx
   main.tsx
@@ -79,40 +115,530 @@ This section contains the contents of the repository's files.
 </file>
 
 <file path="src/api/api.ts">
+import axios from "axios";
 
+// 1. Helper function to find a specific cookie by its name
+function getCookie(name: string): string | null {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) {
+    return parts.pop()?.split(";").shift() || null;
+  }
+  return null;
+}
+
+// 2. Create the central Axios instance
+const api = axios.create({
+  baseURL: "http://localhost:8000/api/v1",
+  withCredentials: true, // This tells the browser to always send/receive our cookies 🍪
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+// 3. The Interceptor: Our automatic security guard 🛡️
+api.interceptors.request.use(
+  (config) => {
+    // Django only needs CSRF tokens for "unsafe" methods that change data
+    const unsafeMethods = ["post", "put", "patch", "delete"];
+
+    if (config.method && unsafeMethods.includes(config.method.toLowerCase())) {
+      const csrfToken = getCookie("csrftoken");
+      if (csrfToken) {
+        config.headers["X-CSRFToken"] = csrfToken; // Attach the token!
+      }
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  },
+);
+
+export default api;
 </file>
 
 <file path="src/assets/react.svg">
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="iconify iconify--logos" width="35.93" height="32" preserveAspectRatio="xMidYMid meet" viewBox="0 0 256 228"><path fill="#00D8FF" d="M210.483 73.824a171.49 171.49 0 0 0-8.24-2.597c.465-1.9.893-3.777 1.273-5.621c6.238-30.281 2.16-54.676-11.769-62.708c-13.355-7.7-35.196.329-57.254 19.526a171.23 171.23 0 0 0-6.375 5.848a155.866 155.866 0 0 0-4.241-3.917C100.759 3.829 77.587-4.822 63.673 3.233C50.33 10.957 46.379 33.89 51.995 62.588a170.974 170.974 0 0 0 1.892 8.48c-3.28.932-6.445 1.924-9.474 2.98C17.309 83.498 0 98.307 0 113.668c0 15.865 18.582 31.778 46.812 41.427a145.52 145.52 0 0 0 6.921 2.165a167.467 167.467 0 0 0-2.01 9.138c-5.354 28.2-1.173 50.591 12.134 58.266c13.744 7.926 36.812-.22 59.273-19.855a145.567 145.567 0 0 0 5.342-4.923a168.064 168.064 0 0 0 6.92 6.314c21.758 18.722 43.246 26.282 56.54 18.586c13.731-7.949 18.194-32.003 12.4-61.268a145.016 145.016 0 0 0-1.535-6.842c1.62-.48 3.21-.974 4.76-1.488c29.348-9.723 48.443-25.443 48.443-41.52c0-15.417-17.868-30.326-45.517-39.844Zm-6.365 70.984c-1.4.463-2.836.91-4.3 1.345c-3.24-10.257-7.612-21.163-12.963-32.432c5.106-11 9.31-21.767 12.459-31.957c2.619.758 5.16 1.557 7.61 2.4c23.69 8.156 38.14 20.213 38.14 29.504c0 9.896-15.606 22.743-40.946 31.14Zm-10.514 20.834c2.562 12.94 2.927 24.64 1.23 33.787c-1.524 8.219-4.59 13.698-8.382 15.893c-8.067 4.67-25.32-1.4-43.927-17.412a156.726 156.726 0 0 1-6.437-5.87c7.214-7.889 14.423-17.06 21.459-27.246c12.376-1.098 24.068-2.894 34.671-5.345a134.17 134.17 0 0 1 1.386 6.193ZM87.276 214.515c-7.882 2.783-14.16 2.863-17.955.675c-8.075-4.657-11.432-22.636-6.853-46.752a156.923 156.923 0 0 1 1.869-8.499c10.486 2.32 22.093 3.988 34.498 4.994c7.084 9.967 14.501 19.128 21.976 27.15a134.668 134.668 0 0 1-4.877 4.492c-9.933 8.682-19.886 14.842-28.658 17.94ZM50.35 144.747c-12.483-4.267-22.792-9.812-29.858-15.863c-6.35-5.437-9.555-10.836-9.555-15.216c0-9.322 13.897-21.212 37.076-29.293c2.813-.98 5.757-1.905 8.812-2.773c3.204 10.42 7.406 21.315 12.477 32.332c-5.137 11.18-9.399 22.249-12.634 32.792a134.718 134.718 0 0 1-6.318-1.979Zm12.378-84.26c-4.811-24.587-1.616-43.134 6.425-47.789c8.564-4.958 27.502 2.111 47.463 19.835a144.318 144.318 0 0 1 3.841 3.545c-7.438 7.987-14.787 17.08-21.808 26.988c-12.04 1.116-23.565 2.908-34.161 5.309a160.342 160.342 0 0 1-1.76-7.887Zm110.427 27.268a347.8 347.8 0 0 0-7.785-12.803c8.168 1.033 15.994 2.404 23.343 4.08c-2.206 7.072-4.956 14.465-8.193 22.045a381.151 381.151 0 0 0-7.365-13.322Zm-45.032-43.861c5.044 5.465 10.096 11.566 15.065 18.186a322.04 322.04 0 0 0-30.257-.006c4.974-6.559 10.069-12.652 15.192-18.18ZM82.802 87.83a323.167 323.167 0 0 0-7.227 13.238c-3.184-7.553-5.909-14.98-8.134-22.152c7.304-1.634 15.093-2.97 23.209-3.984a321.524 321.524 0 0 0-7.848 12.897Zm8.081 65.352c-8.385-.936-16.291-2.203-23.593-3.793c2.26-7.3 5.045-14.885 8.298-22.6a321.187 321.187 0 0 0 7.257 13.246c2.594 4.48 5.28 8.868 8.038 13.147Zm37.542 31.03c-5.184-5.592-10.354-11.779-15.403-18.433c4.902.192 9.899.29 14.978.29c5.218 0 10.376-.117 15.453-.343c-4.985 6.774-10.018 12.97-15.028 18.486Zm52.198-57.817c3.422 7.8 6.306 15.345 8.596 22.52c-7.422 1.694-15.436 3.058-23.88 4.071a382.417 382.417 0 0 0 7.859-13.026a347.403 347.403 0 0 0 7.425-13.565Zm-16.898 8.101a358.557 358.557 0 0 1-12.281 19.815a329.4 329.4 0 0 1-23.444.823c-7.967 0-15.716-.248-23.178-.732a310.202 310.202 0 0 1-12.513-19.846h.001a307.41 307.41 0 0 1-10.923-20.627a310.278 310.278 0 0 1 10.89-20.637l-.001.001a307.318 307.318 0 0 1 12.413-19.761c7.613-.576 15.42-.876 23.31-.876H128c7.926 0 15.743.303 23.354.883a329.357 329.357 0 0 1 12.335 19.695a358.489 358.489 0 0 1 11.036 20.54a329.472 329.472 0 0 1-11 20.722Zm22.56-122.124c8.572 4.944 11.906 24.881 6.52 51.026c-.344 1.668-.73 3.367-1.15 5.09c-10.622-2.452-22.155-4.275-34.23-5.408c-7.034-10.017-14.323-19.124-21.64-27.008a160.789 160.789 0 0 1 5.888-5.4c18.9-16.447 36.564-22.941 44.612-18.3ZM128 90.808c12.625 0 22.86 10.235 22.86 22.86s-10.235 22.86-22.86 22.86s-22.86-10.235-22.86-22.86s10.235-22.86 22.86-22.86Z"></path></svg>
 </file>
 
-<file path="src/components/SignInForm.tsx">
-import SubmitAction from "../helpers/SubmitAction";
+<file path="src/components/Comments/Comment/Comment.scss">
+@use "../../../styles/variables" as *;
 
+.comment-object {
+  background: $white;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .comment-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-size: 0.85rem;
+
+    .author {
+      font-weight: 700;
+      color: $primary-color;
+    }
+
+    .date {
+      color: $text-muted;
+    }
+  }
+
+  .comment-content {
+    line-height: 1.5;
+    color: #444;
+  }
+
+  .post-footer {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 15px;
+
+    // Add this inside .post-footer .btn-actio
+
+    // Add this below the .post-footer block
+  }
+}
+</file>
+
+<file path="src/components/Comments/Comment/CommentCard.tsx">
+import { commentService } from "../../../services/commentService";
+import { Comment } from "../../../interfaces/commentType";
+import "./Comment.scss";
+
+function CommentCard({ comment }: { comment: Comment }) {
+  const date = new Date(comment.created_at).toLocaleDateString();
+  return (
+    <div className="comment-object">
+      <div className="comment-header">
+        <span className="author">{comment.author}</span>
+        <span className="date">{date}</span>
+      </div>
+      <div>
+        <p className="comment-content">{comment.content}</p>
+      </div>
+    </div>
+  );
+}
+
+export default CommentCard;
+</file>
+
+<file path="src/components/Comments/CommentsBox/CommentsBox.scss">
+
+</file>
+
+<file path="src/components/Comments/CommentsBox/CommentsBox.tsx">
+import { Post } from "../../../interfaces/postType";
+import { useEffect, useState } from "react";
+import { commentService } from "../../../services/commentService";
+import api from "../../../api/api";
+import CommentCard from "../Comment/CommentCard";
+
+function CommentBox({ post }: { post: Post }) {
+  const [comments, setComments] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api
+      .get(`/account/posts/${post.id}/comments/`)
+      .then((res) => {
+        setComments(res.data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error("Error fetching posts:", err);
+        setLoading(false);
+      });
+  }, [post.id]);
+
+  if (loading) return <div className="feed-status">Loading feed...</div>;
+
+  return (
+    <div>
+      {" "}
+      <main className="comment-box-content">
+        {comments.length > 0 ? (
+          comments.map((comment: any) => (
+            <CommentCard key={comment.id} comment={comment} />
+          ))
+        ) : (
+          <p className="no-posts">
+            No comments yet. Be the first to share something!
+          </p>
+        )}
+      </main>
+    </div>
+  );
+}
+
+export default CommentBox;
+</file>
+
+<file path="src/components/Comments/CommentsTextField/CommentsTextField.scss">
+@use "../../../styles/variables" as *;
+
+.comment-form {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 10x dashed #eee;
+  display: flex;
+  gap: 10px;
+
+  .comment-input {
+    flex: 1;
+    padding: 10px 15px;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.3s;
+
+    &:focus {
+      border-color: $primary-color;
+    }
+  }
+
+  .btn-submit-comment {
+    background-color: $primary-color;
+    color: white;
+    border: none;
+    padding: 0 15px;
+    border-radius: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.3s;
+
+    &:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+
+    &:not(:disabled):hover {
+      background-color: darken($primary-color, 10%);
+    }
+  }
+}
+</file>
+
+<file path="src/components/Comments/CommentsTextField/CommentsTextField.tsx">
+import { Post } from "../../../interfaces/postType";
+import { useCommentPost } from "../../../hooks/useCommentsPost";
+import { CommentsHandler } from "../../../interfaces/commentType";
+import "./CommentsTextField.scss";
+
+function CommentsTextField({
+  post,
+  commentText,
+  setCommentText,
+  handleCommentSubmit,
+}: CommentsHandler) {
+  return (
+    <div>
+      <form className="comment-form" onSubmit={handleCommentSubmit}>
+        <input
+          type="text"
+          placeholder="Write a comment..."
+          value={commentText}
+          onChange={(e) => setCommentText(e.target.value)}
+          className="comment-input"
+        />
+        <button
+          type="submit"
+          className="btn-submit-comment"
+          disabled={!commentText.trim()}
+        >
+          Post
+        </button>
+      </form>
+    </div>
+  );
+}
+
+export default CommentsTextField;
+</file>
+
+<file path="src/components/PostCard/PostCard.scss">
+@use "../../styles/variables" as *;
+
+.post-card {
+  background: $white;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .post-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 15px;
+    font-size: 0.85rem;
+
+    .author {
+      font-weight: 700;
+      color: $primary-color;
+    }
+
+    .date {
+      color: $text-muted;
+    }
+  }
+
+  .post-title {
+    font-size: 1.25rem;
+    margin-bottom: 10px;
+    color: $text-dark;
+  }
+
+  .post-content {
+    line-height: 1.5;
+    color: #444;
+  }
+
+  .post-footer {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 15px;
+
+    // Add this inside .post-footer .btn-action
+    .btn-action {
+      background: none;
+      border: none;
+      color: $text-muted;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.9rem;
+
+      &:hover {
+        color: $primary-color;
+      }
+
+      transition:
+        color 0.2s ease,
+        transform 0.1s ease;
+
+      &:active {
+        transform: scale(0.95); // Gives a nice "click" animation
+      }
+
+      &.liked {
+        color: #e0245e; // Twitter/X like red
+        font-weight: bold;
+      }
+    }
+
+    // Add this below the .post-footer block
+  }
+
+  .post-image-container {
+    margin-top: 15px;
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: #f8f9fa; // Slight gray background while loading
+    border: 1px solid #eee;
+
+    .post-image {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: cover;
+      max-height: 500px; // Prevents very tall vertical images from taking over the screen
+    }
+  }
+}
+</file>
+
+<file path="src/components/PostCard/PostCard.tsx">
+import { useState } from "react";
+import api from "../../api/api";
+import "./PostCard.scss";
+import { Post } from "../../interfaces/postType";
+import { usePostActions } from "../../hooks/usePostActions";
+import { useCommentPost } from "../../hooks/useCommentsPost";
+import CommentsTextField from "../Comments/CommentsTextField/CommentsTextField";
+import CommentBox from "../Comments/CommentsBox/CommentsBox";
+
+function PostCard({ post }: { post: Post }) {
+  const date = new Date(post.created_at).toLocaleDateString();
+
+  const { isLiked, likesCount, handleLike } = usePostActions(post);
+  const {
+    commentsCount,
+    commentText,
+    setCommentText,
+    handleCommentSubmit,
+    setShowComments,
+    showComments,
+  } = useCommentPost(post);
+  return (
+    <div className="post-card">
+      <div className="post-header">
+        <span className="author">{post.author}</span>
+        <span className="date">{date}</span>
+      </div>
+
+      <div className="post-body">
+        <h2 className="post-title">{post.title}</h2>
+        <p className="post-content">{post.content}</p>
+        {post.image && (
+          <div className="post-image-container">
+            <img src={post.image} alt={post.title} className="post-image" />
+          </div>
+        )}
+      </div>
+
+      <div className="post-footer">
+        {/* Dynamic Class for Liked State */}
+        <button
+          className={`btn-action ${isLiked ? "liked" : ""}`}
+          onClick={handleLike}
+        >
+          {isLiked ? "❤️ Liked" : "🤍 Like"}{" "}
+          {likesCount > 0 && `(${likesCount})`}
+        </button>
+
+        <button
+          className="btn-action"
+          onClick={() => setShowComments(!showComments)}
+        >
+          💬 Comment {commentsCount > 0 && `(${commentsCount})`}
+        </button>
+      </div>
+
+      {/* The Comment Input Box (Toggles on/off) */}
+      {showComments && (
+        <div>
+          <CommentBox key={post.id} post={post}></CommentBox>
+          <CommentsTextField
+            post={post}
+            commentText={commentText}
+            setCommentText={setCommentText}
+            handleCommentSubmit={handleCommentSubmit}
+          ></CommentsTextField>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default PostCard;
+</file>
+
+<file path="src/components/SignInForm/SignInForm.scss">
+@import "../../styles/variables"; // Import your variables
+
+.signin-form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 1.2rem;
+
+    input {
+      padding: $input-padding;
+      border: 1px solid #ddd;
+      border-radius: $border-radius;
+      font-size: 1rem;
+      transition: all 0.3s ease;
+
+      &:focus {
+        border-color: $primary-color;
+        outline: none;
+        box-shadow: 0 0 0 3px rgba($primary-color, 0.1);
+      }
+    }
+  }
+
+  .form-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.5rem;
+
+    .btn-reset {
+      background: none;
+      border: none;
+      color: $text-muted;
+      cursor: pointer;
+      font-size: 0.9rem;
+      &:hover {
+        color: $text-dark;
+      }
+    }
+
+    .btn-submit {
+      background-color: $primary-color;
+      color: $white;
+      border: none;
+      padding: 12px 25px;
+      border-radius: $border-radius;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s;
+
+      &:hover {
+        background-color: $primary-hover;
+      }
+    }
+  }
+}
+</file>
+
+<file path="src/components/SignInForm/SignInForm.tsx">
+import SubmitAction from "../../helpers/submitAction";
+import "./SignInForm.scss";
+import { useNavigate } from "react-router-dom"; // 1. Import the hook
 function SignInForm() {
-  const apiUrl = import.meta.env.API_URL;
+  const navigate = useNavigate(); // 2. Initialize the hook
   return (
     <form
-      action="post"
-      onSubmit={(e) => SubmitAction(e, "http://127.0.0.1:8000/api/v1/signin/")}
-      className="d-flex flex-column m-3"
+      onSubmit={(e) => SubmitAction(e, "/signIn", navigate)}
+      className="signin-form"
     >
-      <input
-        type="text"
-        name="username"
-        placeholder="User Name"
-        className="m-1"
-      />
-      <input
-        type="password"
-        name="password"
-        placeholder="Password"
-        className="m-1"
-      />
-      <label className="d-flex justify-content-center">
-        <button type="reset">Try again</button>
-        <button type="submit">Submit</button>
-      </label>
+      <div className="input-group">
+        <input type="text" name="username" placeholder="Username" required />
+      </div>
+      <div className="input-group">
+        <input
+          type="password"
+          name="password"
+          placeholder="Password"
+          required
+        />
+      </div>
+      <div className="form-actions">
+        <button type="reset" className="btn-reset">
+          Clear
+        </button>
+        <button type="submit" className="btn-submit">
+          Sign In
+        </button>
+      </div>
     </form>
   );
 }
@@ -120,52 +646,122 @@ function SignInForm() {
 export default SignInForm;
 </file>
 
-<file path="src/components/SignUpForm.tsx">
-import React from "react";
-import SubmitAction from "../helpers/SubmitAction";
+<file path="src/components/SignUpForm/SignUpForm.scss">
+@import "../../styles/variables";
+
+.signup-form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+
+  .form-input {
+    padding: $input-padding;
+    border: 1px solid #ddd;
+    border-radius: $border-radius;
+    margin-bottom: 1rem;
+    font-size: 0.95rem;
+
+    &:focus {
+      border-color: $primary-color;
+      outline: none;
+    }
+  }
+
+  // Name row using CSS Grid
+  .name-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .form-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 1rem;
+
+    .btn-signup {
+      background-color: $primary-color;
+      color: $white;
+      padding: 14px;
+      border: none;
+      border-radius: $border-radius;
+      font-weight: 700;
+      cursor: pointer;
+      &:hover {
+        background-color: $primary-hover;
+      }
+    }
+
+    .btn-clear {
+      background: none;
+      border: 1px solid #ddd;
+      padding: 8px;
+      border-radius: $border-radius;
+      color: $text-muted;
+      cursor: pointer;
+    }
+  }
+}
+</file>
+
+<file path="src/components/SignUpForm/SignUpForm.tsx">
+import "./SignUpForm.scss";
+import SubmitAction from "../../helpers/submitAction";
+import { useNavigate } from "react-router-dom"; // 1. Import the hook
 
 function SignUpForm() {
-  const apiUrl = import.meta.env.API_URL;
+  const navigate = useNavigate();
   return (
     <form
-      method="post"
-      onSubmit={(e) => SubmitAction(e, "http://127.0.0.1:8000/api/v1/signup")}
-      className="d-flex flex-column m-3"
+      onSubmit={(e) => SubmitAction(e, "/signUp", navigate)}
+      className="signup-form"
     >
       <input
         type="text"
         name="username"
-        placeholder="User Name"
-        className="m-1"
-      ></input>
+        placeholder="Username"
+        className="form-input"
+        required
+      />
       <input
         type="email"
         name="email"
-        placeholder="Email"
-        className="m-1"
-      ></input>
+        placeholder="Email Address"
+        className="form-input"
+        required
+      />
       <input
         type="password"
         name="password"
         placeholder="Password"
-        className="m-1"
-      ></input>
-      <input
-        type="text"
-        name="first_name"
-        placeholder="First Name"
-        className="m-1"
-      ></input>
-      <input
-        type="text"
-        name="last_name"
-        placeholder="Last name"
-        className="m-1"
-      ></input>
-      <label className="d-flex justify-content-center">
-        <button type="reset">Try again</button>
-        <button type="submit">Submit</button>
-      </label>
+        className="form-input"
+        required
+      />
+
+      <div className="name-row">
+        <input
+          type="text"
+          name="first_name"
+          placeholder="First Name"
+          className="form-input"
+        />
+        <input
+          type="text"
+          name="last_name"
+          placeholder="Last Name"
+          className="form-input"
+        />
+      </div>
+
+      <div className="form-footer">
+        <button type="submit" className="btn-signup">
+          Create Account
+        </button>
+        <button type="reset" className="btn-clear">
+          Start Over
+        </button>
+      </div>
     </form>
   );
 }
@@ -216,75 +812,390 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 };
 </file>
 
-<file path="src/helpers/SubmitAction.tsx">
-async function SubmitAction(e: React.FormEvent<HTMLFormElement>, url: string) {
+<file path="src/helpers/submitAction.ts">
+// src/helpers/SubmitAction.ts
+import api from "../api/api";
+
+export default async function SubmitAction(
+  e: React.FormEvent,
+  endpoint: string,
+  navigate: any,
+) {
   e.preventDefault();
 
-  const form = e.currentTarget as HTMLFormElement;
-  const formData = new FormData(form); // get the data from the form
+  // Extract data from your form
+  const formData = new FormData(e.target as HTMLFormElement);
+  const data = Object.fromEntries(formData.entries());
 
-  const formJson = Object.fromEntries(formData.entries()); // create the json format
   try {
-    const jsonString = JSON.stringify(formJson); //this is used so i can send the data as a web string
-    const requestData: RequestInit = {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json", // aparently this is the standard, it has to be in woutoes because it has the line
-      },
-      body: jsonString,
-      credentials: "include",
-    };
+    const response = await api.post(endpoint, data);
 
-    const connection = await fetch(url, requestData);
-
-    const responseData = await connection.json();
-
-    if (connection.ok) {
-      console.log("Conection is good:", responseData);
-    } else {
-      console.log("Soemthing happened");
+    // If Django returns success (200 OK or 201 Created)
+    if (response.status === 200 || response.status === 201) {
+      // 🚀 Redirect the user to the Feed!
+      navigate("/feed");
     }
   } catch (error) {
-    console.error("Connection failed:", error);
+    console.error("Authentication failed:", error);
+    // Here you could later add an alert or error state to show the user
+    alert("Something went wrong. Check your credentials.");
   }
 }
-export default SubmitAction;
 </file>
 
-<file path="src/hooks/useAuth.tsx">
+<file path="src/hooks/useAuth.ts">
+import { useContext } from "react";
+import { AuthContext } from "../context/AuthContext";
 
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+
+  // This helps us catch errors if we forget to wrap the app in the Provider
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+
+  return context;
+};
 </file>
 
-<file path="src/pages/Home.tsx">
+<file path="src/hooks/useCommentsPost.ts">
+import { useState } from "react";
+import { Comment } from "../interfaces/commentType";
+import { Post } from "../interfaces/postType";
+import { commentService } from "../services/commentService";
+
+export const useCommentPost = (post: Post) => {
+  // --- STATE FOR COMMENTS ---
+  const [showComments, setShowComments] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [commentsCount, setCommentsCount] = useState(post.comments_count);
+
+  const handleCommentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!commentText.trim()) return;
+
+    try {
+      // NOTE: Ensure this URL matches your Django urls.py
+      await commentService.createComment(
+        post.id,
+        commentText, // Ensure this matches your CommentSerializer field
+      );
+
+      setCommentText(""); // Clear the input
+      setCommentsCount((prev) => prev + 1); // Optimistically update count
+    } catch (error) {
+      console.error("Failed to post comment", error);
+    }
+  };
+
+  const handleShowComments = async () => {};
+  return {
+    commentsCount,
+    commentText,
+    setCommentText,
+    handleCommentSubmit,
+    setShowComments,
+    showComments,
+  };
+};
+</file>
+
+<file path="src/hooks/usePostActions.ts">
+// hooks/usePostActions.ts
+import { useState } from "react";
+import { postService } from "../services/postService";
+import { Post } from "../interfaces/postType";
+import api from "../api/api";
+import { commentService } from "../services/commentService";
+
+export const usePostActions = (post: Post) => {
+  // --- STATE FOR LIKES ---
+  const [likesCount, setLikesCount] = useState(post.likes_count);
+  const [isLiked, setIsLiked] = useState(post.is_liked);
+
+  // 1. Handle Like Click
+  const handleLike = async () => {
+    // Optimistic UI Update (Instantly change the screen)
+    const newLikedState = !isLiked;
+    setIsLiked(newLikedState);
+    setLikesCount((prev) => (newLikedState ? prev + 1 : prev - 1));
+
+    try {
+      // NOTE: Ensure this URL matches your Django urls.py for nested routers!
+      if (newLikedState) {
+        await postService.likePost(post.id);
+      } else {
+        await postService.unlikePost(post.id);
+      }
+    } catch (error) {
+      console.error("Failed to toggle like", error);
+      // Revert the UI if the server failed
+      setIsLiked(!newLikedState);
+      setLikesCount((prev) => (newLikedState ? prev - 1 : prev + 1));
+    }
+  };
+
+  // 2. Handle Comment Submit
+
+  return {
+    isLiked,
+    likesCount,
+    handleLike,
+  };
+};
+</file>
+
+<file path="src/interfaces/commentType.ts">
+import { Post } from "../interfaces/postType";
+
+export interface Comment {
+  id: number;
+  author: string;
+  content: string;
+  created_at: string;
+  post_id: number;
+}
+
+export interface CommentsHandler {
+  post: Post;
+  commentText: string;
+  setCommentText: (newText: string) => void;
+  handleCommentSubmit: (e: React.FormEvent) => void;
+}
+</file>
+
+<file path="src/interfaces/postType.ts">
+export interface Post {
+  id: number;
+  author: string;
+  title: string;
+  content: string;
+  created_at: string;
+  image: string | null;
+  likes_count: number;
+  comments_count: number;
+  is_liked: boolean;
+}
+</file>
+
+<file path="src/pages/Feed/Feed.scss">
+@use "../../styles/variables" as *;
+
+.feed-page {
+  background-color: $bg-light;
+  min-height: 100vh;
+
+  .feed-nav {
+    background: $white;
+    padding: 10px 50px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    border-bottom: 1px solid #ddd;
+
+    .logo-small {
+      font-family: monospace;
+      font-weight: 900;
+      color: $primary-color;
+      margin: 0;
+    }
+
+    .btn-logout {
+      background-color: $primary-color;
+      color: $white;
+      padding: 11px;
+      border: none;
+      border-radius: $border-radius;
+      font-weight: 700;
+      cursor: pointer;
+      &:hover {
+        background-color: $primary-hover;
+      }
+    }
+  }
+
+  .feed-content {
+    max-width: 600px;
+    margin: 30px auto;
+    padding: 0 15px;
+  }
+
+  .feed-status,
+  .no-posts {
+    text-align: center;
+    margin-top: 50px;
+    color: $text-muted;
+  }
+}
+</file>
+
+<file path="src/pages/Feed/Feed.tsx">
+import { useEffect, useState } from "react";
+import api from "../../api/api";
+import PostCard from "../../components/PostCard/PostCard";
+import "./Feed.scss";
+
+function Feed() {
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Replace with your actual backend endpoint from urls.py
+    api
+      .get("/account/posts/")
+      .then((res) => {
+        setPosts(res.data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error("Error fetching posts:", err);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) return <div className="feed-status">Loading feed...</div>;
+
+  return (
+    <div className="feed-page">
+      <nav className="feed-nav">
+        <h1 className="logo-small">DOT8</h1>
+        <button
+          className="btn-logout"
+          onClick={() => {
+            /* handle logout */
+          }}
+        >
+          Log out
+        </button>
+      </nav>
+
+      <main className="feed-content">
+        {posts.length > 0 ? (
+          posts.map((post: any) => <PostCard key={post.id} post={post} />)
+        ) : (
+          <p className="no-posts">
+            No posts yet. Be the first to share something!
+          </p>
+        )}
+      </main>
+    </div>
+  );
+}
+
+export default Feed;
+</file>
+
+<file path="src/pages/Home/Home.scss">
+@import "../../styles/variables";
+
+.home-page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: $bg-light;
+  text-align: center;
+
+  .logo-main {
+    font-size: 5rem;
+    font-weight: 900;
+    font-family: monospace;
+    background: linear-gradient(45deg, $primary-color, #6610f2);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 2rem;
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 20px;
+
+    .btn-link {
+      text-decoration: none;
+      color: $text-dark;
+      border: 2px solid $text-dark;
+      padding: 12px 30px;
+      border-radius: 30px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+
+      &:hover {
+        background-color: $text-dark;
+        color: $white;
+        transform: translateY(-3px);
+      }
+    }
+  }
+}
+</file>
+
+<file path="src/pages/Home/Home.tsx">
 import { Link } from "react-router-dom";
+import "./Home.scss";
 
 function Home() {
   return (
-    <>
-      <h1 className="font-monospace">DOT8</h1>
-      <div className="position-absolute top-0 end-0 m-3">
-        <Link to="/signup" className="fs-3 border border-black m-3 p-2">
+    <div className="home-page">
+      <h1 className="logo-main">DOT8</h1>
+      <div className="nav-links">
+        <Link to="/signup" className="btn-link">
           Sign Up
         </Link>
-        <Link to="/signin" className="fs-3 border border-black m-3 p-2">
+        <Link to="/signin" className="btn-link">
           Sign In
         </Link>
       </div>
-    </>
+    </div>
   );
 }
 
 export default Home;
 </file>
 
-<file path="src/pages/SignIn.tsx">
-import SignInForm from "../components/SignInForm";
+<file path="src/pages/SignIn/SignIn.scss">
+@import "../../styles/variables";
+
+.signin-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: $bg-light;
+
+  .auth-container {
+    background: $white;
+    padding: 40px;
+    border-radius: 15px;
+    box-shadow: $shadow;
+    width: 100%;
+    max-width: 400px;
+
+    h1 {
+      color: $primary-color;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+  }
+}
+</file>
+
+<file path="src/pages/SignIn/SignIn.tsx">
+import SignInForm from "../../components/SignInForm/SignInForm";
+import "./SignIn.scss";
 
 function SignIn() {
   return (
-    <div className="d-flex flex-column justify-content-center align-items-center vh-100">
-      <h1>Bine ai revenit</h1>
-      <SignInForm></SignInForm>
+    <div className="signin-page">
+      <div className="auth-container">
+        <h1>Welcome Back</h1>
+        <SignInForm />
+      </div>
     </div>
   );
 }
@@ -292,15 +1203,46 @@ function SignIn() {
 export default SignIn;
 </file>
 
-<file path="src/pages/SignUp.tsx">
-import SignUpForm from "../components/SignUpForm";
+<file path="src/pages/SignUp/SignUp.scss">
+@import "../../styles/variables";
+
+.signup-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: $bg-light;
+
+  .auth-container {
+    background: $white;
+    padding: 40px;
+    border-radius: 15px;
+    box-shadow: $shadow;
+    width: 100%;
+    max-width: 400px; // Slightly wider for the name row
+
+    h1 {
+      color: $primary-color;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+  }
+}
+</file>
+
+<file path="src/pages/SignUp/SignUp.tsx">
+import SignUpForm from "../../components/SignUpForm/SignUpForm";
+import "./SignUp.scss";
 
 function SignUp() {
   return (
     <>
-      <div className="d-flex flex-column justify-content-center align-items-center vh-100">
-        <h1>Salut bine ai venit</h1>
-        <SignUpForm />
+      <div className="signup-page">
+        <div className="auth-container">
+          <h1>Salut bine ai venit</h1>
+          <SignUpForm />
+        </div>
       </div>
     </>
   );
@@ -309,16 +1251,56 @@ function SignUp() {
 export default SignUp;
 </file>
 
+<file path="src/services/commentService.ts">
+import api from "../api/api";
+
+export const commentService = {
+  createComment: (postId: number, content: string) =>
+    api.post(`/account/posts/${postId}/comments/`, { content }),
+  getComments: (postId: number) =>
+    api.get(`/account/posts/${postId}/comments/`),
+};
+</file>
+
+<file path="src/services/postService.ts">
+// services/postService.ts
+import api from "../api/api"; // your axios instance
+
+export const postService = {
+  likePost: (postId: number) => api.post(`/account/posts/${postId}/likes/`),
+
+  unlikePost: (postId: number) => api.delete(`/account/posts/${postId}/likes/`),
+
+};
+</file>
+
+<file path="src/styles/_variables.scss">
+// Colors
+$primary-color: #9414e3;
+$primary-hover: #884df7;
+$bg-light: #f4f7f6;
+$text-dark: #333;
+$text-muted: #6c757d;
+$error-color: #dc3545;
+$white: #ffffff;
+
+// Spacing & Borders
+$border-radius: 10px;
+$input-padding: 12px 15px;
+$shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+</file>
+
 <file path="src/App.css">
 
 </file>
 
 <file path="src/App.tsx">
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Home from "./pages/Home";
-import SignUp from "./pages/SignUp";
-import SignIn from "./pages/SignIn";
+import Home from "./pages/Home/Home";
+import SignUp from "./pages/SignUp/SignUp";
+import SignIn from "./pages/SignIn/SignIn";
 import { AuthProvider } from "./context/AuthContext";
+import Feed from "./pages/Feed/Feed";
 
 function App() {
   return (
@@ -329,6 +1311,7 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/signup" element={<SignUp />} />
           <Route path="/signin" element={<SignIn></SignIn>} />
+          <Route path="/feed" element={<Feed />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
@@ -338,17 +1321,15 @@ export default App;
 </file>
 
 <file path="src/main.tsx">
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import App from './App'
-import 'bootstrap/dist/css/bootstrap.css'
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
 
-
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>,
-)
+);
 </file>
 
 <file path="src/vite-env.d.ts">
@@ -384,7 +1365,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   },
   "dependencies": {
     "axios": "^1.14.0",
-    "bootstrap": "^5.2.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.13.2"
@@ -393,6 +1373,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     "@types/react": "^18.0.27",
     "@types/react-dom": "^18.0.10",
     "@vitejs/plugin-react": "^3.1.0",
+    "sass": "^1.99.0",
     "typescript": "^4.9.3",
     "vite": "^4.1.0"
   }
