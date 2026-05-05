@@ -13,7 +13,32 @@
     border-radius: 15px;
     box-shadow: $shadow;
     width: 100%;
-    max-width: 400px; // Slightly wider for the name row
+    max-width: 400px;
+
+    /* 👇 New Back Button Styles 👇 */
+    .btn-back-auth {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+      color: $text-muted;
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 20px;
+      transition: color 0.2s ease;
+
+      .arrow {
+        transition: transform 0.2s ease;
+      }
+
+      &:hover {
+        color: $primary-color;
+
+        .arrow {
+          transform: translateX(-4px);
+        }
+      }
+    }
 
     h1 {
       color: $primary-color;

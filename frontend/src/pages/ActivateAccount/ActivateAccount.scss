@@ -1,0 +1,92 @@
+@use "../../styles/variables" as *;
+
+.activate-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: $bg-light;
+
+  .auth-container {
+    background: $white;
+    padding: 50px 40px;
+    border-radius: 15px;
+    box-shadow: $shadow;
+    width: 100%;
+    max-width: 450px;
+    text-align: center; // Centers all the text
+
+    h1 {
+      font-weight: 800;
+      margin-bottom: 15px;
+    }
+
+    h2 {
+      color: $text-dark;
+      font-size: 1.2rem;
+      margin-top: 20px;
+    }
+
+    p {
+      color: $text-muted;
+      line-height: 1.5;
+    }
+
+    .success-text {
+      color: #28a745; // Green
+    }
+
+    .error-text {
+      color: $error-color; // Red
+    }
+
+    .mt-4 {
+      margin-top: 25px;
+    }
+
+    .inline-block {
+      display: inline-block;
+      text-decoration: none;
+      padding: 12px 25px;
+      border-radius: $border-radius;
+      font-weight: 600;
+      transition: background-color 0.2s;
+    }
+
+    .btn-primary {
+      background-color: $primary-color;
+      color: $white;
+      &:hover {
+        background-color: $primary-hover;
+      }
+    }
+
+    .btn-secondary {
+      background-color: #eee;
+      color: $text-dark;
+      &:hover {
+        background-color: #ddd;
+      }
+    }
+
+    /* A simple CSS loading spinner */
+    .spinner {
+      border: 4px solid rgba($primary-color, 0.1);
+      border-left-color: $primary-color;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+  }
+}

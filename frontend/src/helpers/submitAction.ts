@@ -5,6 +5,7 @@ export default async function SubmitAction(
   e: React.FormEvent,
   endpoint: string,
   navigate: any,
+  redirectPath: string = "/feed",
 ) {
   e.preventDefault();
 
@@ -18,7 +19,7 @@ export default async function SubmitAction(
     // If Django returns success (200 OK or 201 Created)
     if (response.status === 200 || response.status === 201) {
       // 🚀 Redirect the user to the Feed!
-      navigate("/feed");
+      navigate(redirectPath);
     }
   } catch (error) {
     console.error("Authentication failed:", error);

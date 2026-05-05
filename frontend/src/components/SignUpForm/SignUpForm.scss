@@ -4,21 +4,57 @@
   display: flex;
   flex-direction: column;
   width: 100%;
+  gap: 15px; // Replaces margin-bottom on individual inputs
 
-  .form-input {
-    padding: $input-padding;
-    border: 1px solid #ddd;
+  .global-error {
+    color: $error-color;
+    text-align: center;
+    background: rgba($error-color, 0.1);
+    padding: 10px;
     border-radius: $border-radius;
-    margin-bottom: 1rem;
-    font-size: 0.95rem;
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
 
-    &:focus {
-      border-color: $primary-color;
-      outline: none;
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px; // Space between input and error text
+
+    .form-input {
+      padding: $input-padding;
+      border: 1px solid #ddd;
+      border-radius: $border-radius;
+      font-size: 0.95rem;
+      transition: all 0.3s ease;
+
+      &:focus {
+        border-color: $primary-color;
+        outline: none;
+      }
+
+      /* 👇 The dynamic error border 👇 */
+      &.input-error {
+        border-color: $error-color;
+        background-color: rgba($error-color, 0.02);
+
+        &:focus {
+          box-shadow: 0 0 0 3px rgba($error-color, 0.1);
+        }
+      }
+    }
+
+    /* 👇 The red error text 👇 */
+    .error-text {
+      color: $error-color;
+      font-size: 0.8rem;
+      font-weight: 500;
+      padding-left: 5px;
+      animation: slideDown 0.2s ease-out;
     }
   }
 
-  // Name row using CSS Grid
   .name-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -29,7 +65,7 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    margin-top: 1rem;
+    margin-top: 5px;
 
     .btn-signup {
       background-color: $primary-color;
@@ -39,8 +75,15 @@
       border-radius: $border-radius;
       font-weight: 700;
       cursor: pointer;
-      &:hover {
+      transition: background-color 0.2s;
+
+      &:hover:not(:disabled) {
         background-color: $primary-hover;
+      }
+
+      &:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
       }
     }
 
@@ -51,6 +94,23 @@
       border-radius: $border-radius;
       color: $text-muted;
       cursor: pointer;
+      transition: all 0.2s;
+
+      &:hover {
+        background-color: #f8f9fa;
+        color: $text-dark;
+      }
     }
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

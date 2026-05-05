@@ -1,6 +1,7 @@
 import { UserProfile } from "../../interfaces/userType";
-import "./ProfileHeader.scss";
 import { Link } from "react-router-dom";
+import "./ProfileHeader.scss";
+import SettingsDropdown from "../SettingsDropdown/SettingsDropdown";
 
 function ProfileHeader({ profile }: { profile: UserProfile }) {
   return (
@@ -18,18 +19,11 @@ function ProfileHeader({ profile }: { profile: UserProfile }) {
           {profile.bio || "No description provided."}
         </p>
         <div className="profile-actions">
-          <Link
-            to="/create-post"
-            className="btn-primary"
-            style={{
-              textDecoration: "none",
-              display: "inline-block",
-              textAlign: "center",
-            }}
-          >
+          {/* Use the class 'btn-secondary' so it matches the Settings button */}
+          <Link to="/create-post" className="btn-secondary">
             Create Post
           </Link>
-          <button className="btn-secondary">Settings</button>
+          <SettingsDropdown></SettingsDropdown>
         </div>
       </div>
     </header>

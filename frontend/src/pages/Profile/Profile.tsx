@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom"; // 👈 Import Link and useNavigate
 import api from "../../api/api";
 import { Post } from "../../interfaces/postType";
 import { UserProfile } from "../../interfaces/userType";
@@ -8,6 +9,7 @@ import PostCard from "../../components/PostCard/PostCard";
 import "./Profile.scss";
 
 function Profile() {
+  const navigate = useNavigate(); // 👈 Initialize navigate
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,6 +37,17 @@ function Profile() {
 
   return (
     <div className="profile-page">
+      {/* 👇 NEW TOP NAVIGATION 👇 */}
+      <nav className="profile-top-nav">
+        <button className="btn-back" onClick={() => navigate("/feed")}>
+          &larr; Back
+        </button>
+        <Link to="/feed" className="logo-link">
+          <h1 className="logo-small">DOT8</h1>
+        </Link>
+        <div className="spacer"></div> {/* Keeps the logo perfectly centered */}
+      </nav>
+
       <ProfileHeader profile={profile} />
       <PostsGrid posts={posts} onPostClick={setSelectedPost} />
 
