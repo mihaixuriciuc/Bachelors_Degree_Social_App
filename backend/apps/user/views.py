@@ -159,7 +159,7 @@ def getMyProfile(request):
     profile, created = Profile.objects.get_or_create(user=user)
 
     # Serialize it and return the Response!
-    serializer = ProfileSerializer(profile)
+    serializer = ProfileSerializer(profile, context={'request': request})
     return Response(serializer.data)
 
 @api_view(['POST'])
@@ -177,7 +177,7 @@ def updateMyProfile(request):
     profile, _ = Profile.objects.get_or_create(user=request.user)
 
     # Pass the instance AND the data. partial=True allows updating just 1 or 2 fields
-    serializer = ProfileSerializer(profile, data=request.data, partial=True)
+    serializer = ProfileSerializer(profile, data=request.data, partial=True,context={'request': request})
 
     if serializer.is_valid():
         serializer.save()

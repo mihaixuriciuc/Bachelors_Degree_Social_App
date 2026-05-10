@@ -3,10 +3,11 @@ from .models import User, Profile
 from rest_framework import serializers
 
 class UserSerializer(serializers.ModelSerializer):
+    confirm_password = serializers.CharField(write_only=True,required=False)
     class Meta:
         #model and fields are from Meta annotation
         model = User
-        fields = ['id', 'username', 'email', 'password', 'first_name', 'last_name']
+        fields = ['id', 'username', 'email', 'password', 'confirm_password','first_name', 'last_name']
 
         extra_kwargs = {'password': {'write_only': True},'id': {'read_only': True}, 'is_staff': {'read_only': True},'is_superuser': {'read_only': True}}
 
@@ -27,23 +28,33 @@ class UserSerializer(serializers.ModelSerializer):
         if len(value) < 2:
             raise serializers.ValidationError("Last name is too short.")
         return value
+
     def validate_email(self, value):
         if len(value) < 2:
             raise serializers.ValidationError("Email is too short.")
-
-        elif User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("Email already exists.")
-
         elif "@" not in value:
             raise serializers.ValidationError("Email must have @")
-        else:
-            return value
+
+        # Check if the email exists, EXCLUDING the current user's ID
+        query = User.objects.filter(email=value)
+        if self.instance:
+            query = query.exclude(pk=self.instance.pk)
+
+        if query.exists():
+            raise serializers.ValidationError("Email already exists.")
+
+        return value
 
     def validate_username(self, value):
         if len(value) < 2:
             raise serializers.ValidationError("Username is too short.")
-        # Check if username already exists
-        elif User.objects.filter(username=value).exists():
+
+        # Check if username exists, EXCLUDING the current user's ID
+        query = User.objects.filter(username=value)
+        if self.instance:
+            query = query.exclude(pk=self.instance.pk)
+
+        if query.exists():
             raise serializers.ValidationError("This username is already taken.")
 
         return value
@@ -74,7 +85,10 @@ class ProfileSerializer(serializers.ModelSerializer):
     # We can add a ReadOnlyField to grab the username from the related User model.
     # 'user.username' traverses the OneToOneField relationship!
     username = serializers.ReadOnlyField(source='user.username')
+    first_name = serializers.ReadOnlyField(source='user.first_name')
+    last_name = serializers.ReadOnlyField(source='user.last_name')
+    email = serializers.ReadOnlyField(source='user.email')
 
     class Meta:
         model = Profile
-        fields = ['username', 'bio', 'profile_pic', 'website']
+        fields = ['username', 'first_name', 'last_name', 'email', 'bio', 'profile_pic', 'website']

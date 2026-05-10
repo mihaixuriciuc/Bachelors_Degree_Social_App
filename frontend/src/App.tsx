@@ -8,6 +8,10 @@ import Profile from "./pages/Profile/Profile";
 import CreatePost from "./pages/CreatePost/CreatePost";
 import ActivateAccount from "./pages/ActivateAccount/ActivateAccount";
 import CheckEmail from "./pages/CheckEmail/CheckEmail";
+import EditProfile from "./pages/EditProfile/EditProfile";
+import Security from "./pages/Security/Security";
+import ForgotPassword from "./pages/ForgotPassword/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword/ResetPassword";
 
 function App() {
   return (
@@ -23,6 +27,13 @@ function App() {
           <Route path="/create-post" element={<CreatePost />} />
           <Route path="/activate/:uid/:token" element={<ActivateAccount />} />
           <Route path="/check-email" element={<CheckEmail />} />
+          <Route path="/edit-profile" element={<EditProfile />} />
+          <Route path="/security" element={<Security />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route
+            path="/reset-password/:uid/:token"
+            element={<ResetPassword />}
+          />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

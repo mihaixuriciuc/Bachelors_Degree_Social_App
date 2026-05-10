@@ -1,4 +1,5 @@
 @use "../../styles/variables" as *;
+@use "sass:color";
 
 .settings-container {
   position: relative; // Essential so the dropdown floats relative to this button

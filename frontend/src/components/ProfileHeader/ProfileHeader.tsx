@@ -8,7 +8,7 @@ function ProfileHeader({ profile }: { profile: UserProfile }) {
     <header className="profile-header">
       <div className="profile-picture-container">
         <img
-          src={profile.profile_picture || "https://via.placeholder.com/150"}
+          src={profile.profile_pic || "https://via.placeholder.com/150"}
           alt={profile.username}
           className="profile-picture"
         />

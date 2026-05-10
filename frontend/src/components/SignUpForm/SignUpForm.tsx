@@ -5,17 +5,23 @@ import "./SignUpForm.scss";
 
 function SignUpForm() {
   const navigate = useNavigate();
-  // State to hold Django's error messages
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setErrors({}); // Clear previous errors
+    setErrors({});
     setLoading(true);
 
     const formData = new FormData(e.currentTarget);
     const data = Object.fromEntries(formData.entries());
+
+    // We can let the backend handle the mismatch error, or catch it right here to save an API call
+    if (data.password !== data.confirm_password) {
+      setErrors({ confirm_password: ["Passwords do not match."] });
+      setLoading(false);
+      return;
+    }
 
     try {
       const response = await api.post("/signUp", data);
@@ -23,8 +29,6 @@ function SignUpForm() {
         navigate("/check-email");
       }
     } catch (err: any) {
-      console.error("Sign up failed:", err);
-      // If Django sends back form validation errors, save them to state!
       if (err.response && err.response.data) {
         setErrors(err.response.data);
       } else {
@@ -38,6 +42,8 @@ function SignUpForm() {
   return (
     <form onSubmit={handleSubmit} className="signup-form">
       {errors.general && <p className="global-error">{errors.general[0]}</p>}
+
+      {/* ... keeping your existing username and email inputs ... */}
 
       <div className="input-group">
         <input
@@ -73,6 +79,20 @@ function SignUpForm() {
         />
         {errors.password && (
           <span className="error-text">{errors.password[0]}</span>
+        )}
+      </div>
+
+      {/* 👇 NEW CONFIRM PASSWORD FIELD 👇 */}
+      <div className="input-group">
+        <input
+          type="password"
+          name="confirm_password"
+          placeholder="Confirm Password"
+          className={`form-input ${errors.confirm_password ? "input-error" : ""}`}
+          required
+        />
+        {errors.confirm_password && (
+          <span className="error-text">{errors.confirm_password[0]}</span>
         )}
       </div>
 

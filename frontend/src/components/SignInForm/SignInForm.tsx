@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../api/api";
 import "./SignInForm.scss";
+import { Link } from "react-router-dom";
 
 function SignInForm() {
   const navigate = useNavigate();
@@ -78,6 +79,20 @@ function SignInForm() {
         <button type="submit" className="btn-submit" disabled={loading}>
           {loading ? "Signing In..." : "Sign In"}
         </button>
+
+        <div style={{ textAlign: "center" }}>
+          <Link
+            to="/forgot-password"
+            style={{
+              color: "#9414e3",
+              textDecoration: "none",
+              fontSize: "0.9rem",
+              fontWeight: "600",
+            }}
+          >
+            Forgot Password?
+          </Link>
+        </div>
       </div>
     </form>
   );
