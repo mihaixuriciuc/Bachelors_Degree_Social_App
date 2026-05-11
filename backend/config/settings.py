@@ -162,7 +162,7 @@ from datetime import timedelta
 
 SIMPLE_JWT = {
     # How long the "Working" token lasts (e.g., for Axios calls)
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=30),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
 
     # How long before the user is FORCED to log in again
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
@@ -170,3 +170,6 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
 }
+
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'noreply@dot8.com'

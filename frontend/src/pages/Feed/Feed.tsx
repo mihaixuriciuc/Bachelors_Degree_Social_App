@@ -3,10 +3,12 @@ import api from "../../api/api";
 import PostCard from "../../components/PostCard/PostCard";
 import "./Feed.scss";
 import { Link } from "react-router-dom"; // ADD THIS IMPORT
+import { useNavigate } from "react-router-dom";
 
 function Feed() {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     // Replace with your actual backend endpoint from urls.py
@@ -36,8 +38,13 @@ function Feed() {
           </Link>
           <button
             className="btn-logout"
-            onClick={() => {
-              /* handle logout */
+            onClick={async () => {
+              try {
+                await api.post("/logout"); // Tells Django to delete the cookies
+                navigate("/"); // Redirects to Home
+              } catch (err) {
+                console.error("Logout failed", err);
+              }
             }}
           >
             Log out

@@ -7,6 +7,48 @@
   max-width: 800px;
   margin: 0 auto;
 
+  /* 👇 NEW TOP NAV STYLES 👇 */
+  .profile-top-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+
+    .btn-back {
+      background: none;
+      border: none;
+      font-size: 1rem;
+      font-weight: 600;
+      color: $text-muted;
+      cursor: pointer;
+      transition: color 0.2s;
+      width: 80px; /* Fixed width to balance the spacer */
+      text-align: left;
+      padding: 0;
+
+      &:hover {
+        color: $primary-color;
+      }
+    }
+
+    .logo-link {
+      text-decoration: none;
+
+      .logo-small {
+        font-family: monospace;
+        font-weight: 900;
+        color: $primary-color;
+        margin: 0;
+        font-size: 2rem;
+      }
+    }
+
+    .spacer {
+      width: 80px; /* Matches the back button width to center the logo perfectly */
+    }
+  }
+  /* 👆 END NEW TOP NAV STYLES 👆 */
+
   .profile-status {
     text-align: center;
     margin-top: 50px;

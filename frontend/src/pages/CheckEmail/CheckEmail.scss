@@ -1,0 +1,91 @@
+@use "../../styles/variables" as *;
+
+.check-email-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: $bg-light;
+
+  .auth-container {
+    background: $white;
+    padding: 50px 40px;
+    border-radius: 15px;
+    box-shadow: $shadow;
+    width: 100%;
+    max-width: 450px;
+    text-align: center;
+
+    .icon-wrapper {
+      margin-bottom: 20px;
+      .mail-icon {
+        font-size: 4rem;
+      }
+    }
+
+    h1 {
+      color: $primary-color;
+      font-weight: 800;
+      margin-bottom: 15px;
+    }
+
+    .instruction-text {
+      color: $text-dark;
+      font-size: 1.05rem;
+      line-height: 1.6;
+      margin-bottom: 10px;
+    }
+
+    .spam-notice {
+      color: $text-muted;
+      font-size: 0.9rem;
+      margin-bottom: 30px;
+    }
+
+    .action-links {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 15px;
+
+      .inline-block {
+        display: inline-block;
+        text-decoration: none;
+        padding: 12px 25px;
+        border-radius: $border-radius;
+        font-weight: 600;
+        width: 100%;
+        box-sizing: border-box;
+        transition: background-color 0.2s;
+      }
+
+      .btn-primary {
+        background-color: $primary-color;
+        color: $white;
+        &:hover {
+          background-color: $primary-hover;
+        }
+      }
+
+      .btn-back-auth {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        text-decoration: none;
+        color: $text-muted;
+        font-weight: 600;
+        transition: color 0.2s ease;
+
+        .arrow {
+          transition: transform 0.2s ease;
+        }
+        &:hover {
+          color: $primary-color;
+          .arrow {
+            transform: translateX(-4px);
+          }
+        }
+      }
+    }
+  }
+}
