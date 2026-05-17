@@ -47,11 +47,13 @@ backend/
         __init__.py
         0001_initial.py
         0002_rename_comment_comment_content_alter_post_image.py
+        0003_fix_image_paths.py
       __init__.py
       admin.py
       apps.py
       helpers.py
       models.py
+      permissions.py
       serializers.py
       tests.py
       urls.py
@@ -67,6 +69,7 @@ backend/
       helpers.py
       models.py
       serializers.py
+      services.py
       tests.py
       urls.py
       views.py
@@ -78,21 +81,6 @@ backend/
     settings.py
     urls.py
     wsgi.py
-  media/
-    profile_pic/
-      download.jpeg
-    user_1/
-      profile_picture/
-        download.jpeg
-      test_picture.jpg
-    user_16/
-      06e2328a-c53a-441a-9ff4-575283e8adca.jpg
-      Screenshot_2026-02-18_at_18.09.41.png
-    user_28/
-      profile_picture/
-        download.jpeg
-        parrot_picture_kmeans_algorithm.jpg
-      download.jpeg
   __init__.py
   manage.py
   repomix-output.xml
@@ -167,12 +155,16 @@ frontend/
       Feed/
         Feed.scss
         Feed.tsx
+      ForgotPassword/
+        ForgotPassword.tsx
       Home/
         Home.scss
         Home.tsx
       Profile/
         Profile.scss
         Profile.tsx
+      ResetPassword/
+        ResetPassword.tsx
       Security/
         Security.scss
         Security.tsx
@@ -203,646 +195,252 @@ frontend/
 <files>
 This section contains the contents of the repository's files.
 
-<file path="backend/apps/user/helpers.py">
-def user_directory_path(instance, filename):
-    return f'user_{instance.user.id}/profile_picture/{filename}'
+<file path="backend/apps/posts/migrations/0003_fix_image_paths.py">
+from django.db import migrations
+import os
+
+
+def add_post_content_subfolder(apps, schema_editor):
+    Post = apps.get_model('posts', 'Post')
+
+    for post in Post.objects.all():
+        if post.image and '/post_content/' not in post.image.name:
+            # Old path: "user_5/photo.jpg"
+            # New path: "user_5/post_content/photo.jpg"
+
+            old_path = post.image.name  # e.g., "user_5/photo.jpg"
+            parts = old_path.split('/', 1)  # Split into ["user_5", "photo.jpg"]
+
+            if len(parts) == 2:
+                user_folder = parts[0]  # "user_5"
+                filename = parts[1]  # "photo.jpg"
+                new_path = f'{user_folder}/post_content/{filename}'
+
+                post.image.name = new_path
+                post.save(update_fields=['image'])
+
+                print(f"Updated post {post.id}: {old_path} → {new_path}")
+
+
+def remove_post_content_subfolder(apps, schema_editor):
+    # Reverse operation for rollback
+    Post = apps.get_model('posts', 'Post')
+
+    for post in Post.objects.all():
+        if post.image and '/post_content/' in post.image.name:
+            # "user_5/post_content/photo.jpg" → "user_5/photo.jpg"
+            old_path = post.image.name
+            new_path = old_path.replace('/post_content/', '/')
+
+            post.image.name = new_path
+            post.save(update_fields=['image'])
+
+            print(f"Reverted post {post.id}: {old_path} → {new_path}")
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ('posts', '0002_rename_comment_comment_content_alter_post_image'),  # Your latest migration
+    ]
+
+    operations = [
+        migrations.RunPython(add_post_content_subfolder, remove_post_content_subfolder),
+    ]
 </file>
 
-<file path="frontend/src/components/EditProfileForm/EditProfileForm.scss">
-@import "../../styles/variables";
+<file path="backend/apps/posts/permissions.py">
+from rest_framework import  permissions
 
-.edit-profile-form {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+class IsAuthorOrReadOnly(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS: # GET, HEAD, OPTIONS
+            return True
+        return obj.author == request.user # Only the author can PUT or DELETe
+</file>
 
-  .global-error {
-    color: $error-color;
-    text-align: center;
-    background: rgba($error-color, 0.1);
-    padding: 10px;
-    border-radius: $border-radius;
-    font-weight: 600;
-    animation: slideDown 0.2s ease-out;
-  }
+<file path="backend/apps/user/services.py">
+from django.conf import settings
+from django.contrib.auth import authenticate
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from rest_framework_simplejwt.tokens import RefreshToken
 
-  .picture-edit-section {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid #eee;
+from .models import Profile, User
 
-    .preview-container {
-      width: 100px;
-      height: 100px;
-      border-radius: 50%;
-      border: 3px solid $primary-color;
-      overflow: hidden;
-      flex-shrink: 0;
 
-      .preview-image {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-    }
+class ProfileService:
+    """Handles public-facing profile data (bio, website, profile picture)."""
 
-    .upload-controls {
-      .btn-upload {
-        display: inline-block;
-        background-color: #eee;
-        color: $text-dark;
-        padding: 8px 16px;
-        border-radius: $border-radius;
-        font-weight: 600;
-        font-size: 0.9rem;
-        cursor: pointer;
-        transition: background-color 0.2s;
+    @staticmethod
+    def get_or_create_profile(user: User) -> Profile:
+        profile, _ = Profile.objects.get_or_create(user=user)
+        return profile
 
-        &:hover {
-          background-color: #ddd;
+    @staticmethod
+    def update_profile(
+        user: User,
+        bio: str = None,
+        website: str = None,
+        profile_pic=None,
+    ) -> Profile:
+        profile = ProfileService.get_or_create_profile(user)
+
+        if bio is not None:
+            profile.bio = bio
+        if website is not None:
+            profile.website = website
+        if profile_pic is not None:
+            profile.profile_pic = profile_pic
+
+        profile.save()
+        return profile
+
+
+class UserService:
+    """Handles user identity: username, email, password, first/last name."""
+
+    @staticmethod
+    def register_user(username: str, email: str, password: str) -> User:
+        if User.objects.filter(username=username).exists():
+            raise ValueError("This username is already taken.")
+        if User.objects.filter(email=email).exists():
+            raise ValueError("This email is already registered.")
+        if len(password) < 8 or not any(char.isdigit() for char in password):
+            raise ValueError("Password must be at least 8 characters and contain a number.")
+
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            is_active=False,
+        )
+        return user
+
+    @staticmethod
+    def update_credentials(
+        user: User,
+        username: str = None,
+        email: str = None,
+        first_name: str = None,
+        last_name: str = None,
+    ) -> None:
+        """Updates username, email, and/or first/last name."""
+
+        if username and username != user.username:
+            if User.objects.filter(username=username).exists():
+                raise ValueError("This username is already taken.")
+            user.username = username
+
+        if email and email != user.email:
+            if User.objects.filter(email=email).exists():
+                raise ValueError("This email is already registered.")
+            user.email = email
+
+        if first_name is not None:
+            user.first_name = first_name
+
+        if last_name is not None:
+            user.last_name = last_name
+
+        user.save()
+
+    @staticmethod
+    def update_password(user: User, new_password: str, confirm_password: str) -> None:
+        if new_password != confirm_password:
+            raise ValueError("The passwords do not match.")
+        if len(new_password) < 8 or not any(char.isdigit() for char in new_password):
+            raise ValueError("Password must be at least 8 characters and contain a number.")
+
+        user.set_password(new_password)
+        user.save()
+
+
+class AuthService:
+    """Handles login tokens and email-based flows (activation, password reset)."""
+
+    @staticmethod
+    def login(username: str, password: str) -> dict:
+        user = authenticate(username=username, password=password)
+        if not user:
+            raise ValueError("Invalid username or password.")
+
+        refresh = RefreshToken.for_user(user)
+        return {
+            "username": user.username,
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+            # Return a real bool, not str(True) / str(False).
+            # str(False) is "False" which is truthy in JavaScript — a silent bug.
+            "is_active": user.is_active,
         }
-      }
 
-      .hidden-input {
-        display: none;
-      }
-      .block {
-        display: block;
-      }
-      .mt-1 {
-        margin-top: 8px;
-      }
-    }
-  }
-
-  .name-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 15px;
-  }
-
-  .input-group {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-
-    label {
-      font-weight: 600;
-      color: $text-dark;
-      font-size: 0.9rem;
-    }
-
-    .form-input {
-      padding: $input-padding;
-      border: 1px solid #ddd;
-      border-radius: $border-radius;
-      font-size: 0.95rem;
-      font-family: inherit;
-      transition: all 0.3s ease;
-
-      &:focus {
-        border-color: $primary-color;
-        outline: none;
-        &:not(.input-error) {
-          box-shadow: 0 0 0 3px rgba($primary-color, 0.1);
-        }
-      }
-
-      &.input-error {
-        border-color: $error-color;
-        background-color: rgba($error-color, 0.02);
-        &:focus {
-          box-shadow: 0 0 0 3px rgba($error-color, 0.1);
-        }
-      }
-    }
-
-    .error-text {
-      color: $error-color;
-      font-size: 0.8rem;
-      font-weight: 500;
-      padding-left: 5px;
-      animation: slideDown 0.2s ease-out;
-    }
-  }
-
-  .form-actions {
-    margin-top: 10px;
-
-    .btn-submit {
-      width: 100%;
-      background-color: $primary-color;
-      color: $white;
-      padding: 12px;
-      border: none;
-      border-radius: $border-radius;
-      font-weight: 700;
-      font-size: 1rem;
-      cursor: pointer;
-      transition: background-color 0.2s;
-
-      &:hover:not(:disabled) {
-        background-color: $primary-hover;
-      }
-      &:disabled {
-        background-color: #ccc;
-        cursor: not-allowed;
-      }
-    }
-  }
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-</file>
-
-<file path="frontend/src/components/EditProfileForm/EditProfileForm.tsx">
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import api from "../../api/api";
-import "./EditProfileForm.scss";
-
-interface InitialProfileData {
-  bio?: string;
-  website?: string;
-  profile_pic?: string | null;
-}
-
-function EditProfileForm({ initialData }: { initialData: InitialProfileData }) {
-  const navigate = useNavigate();
-  const [bio, setBio] = useState(initialData.bio || "");
-  const [website, setWebsite] = useState(initialData.website || "");
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>(
-    initialData.profile_pic || "https://via.placeholder.com/150",
-  );
-
-  const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string[]>>({});
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setImageFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setErrors({});
-
-    const formData = new FormData();
-    formData.append("bio", bio);
-    formData.append("website", website);
-    if (imageFile) formData.append("profile_pic", imageFile);
-
-    try {
-      await api.patch("/profile/update/", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      navigate("/profile");
-    } catch (err: any) {
-      if (err.response?.data) setErrors(err.response.data);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <form className="edit-profile-form" onSubmit={handleSubmit}>
-      {errors.detail && <p className="global-error">{errors.detail[0]}</p>}
-
-      <div className="picture-edit-section">
-        <div className="preview-container">
-          <img
-            src={previewUrl}
-            alt="Profile Preview"
-            className="preview-image"
-          />
-        </div>
-        <div className="upload-controls">
-          <label htmlFor="profile-upload" className="btn-upload">
-            Choose New Picture
-          </label>
-          <input
-            id="profile-upload"
-            type="file"
-            accept="image/*"
-            onChange={handleImageChange}
-            className="hidden-input"
-          />
-          {errors.profile_pic && (
-            <span className="error-text block mt-1">
-              {errors.profile_pic[0]}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="input-group">
-        <label>Website</label>
-        <input
-          type="url"
-          value={website}
-          onChange={(e) => setWebsite(e.target.value)}
-          className={`form-input ${errors.website ? "input-error" : ""}`}
-          placeholder="https://yourwebsite.com"
-        />
-        {errors.website && (
-          <span className="error-text">{errors.website[0]}</span>
-        )}
-      </div>
-
-      <div className="input-group">
-        <label>Bio</label>
-        <textarea
-          value={bio}
-          onChange={(e) => setBio(e.target.value)}
-          className={`form-input ${errors.bio ? "input-error" : ""}`}
-          placeholder="Tell people about yourself..."
-          rows={4}
-        />
-        {errors.bio && <span className="error-text">{errors.bio[0]}</span>}
-      </div>
-
-      <div className="form-actions">
-        <button type="submit" className="btn-submit" disabled={loading}>
-          {loading ? "Saving..." : "Save Profile"}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-export default EditProfileForm;
-</file>
-
-<file path="frontend/src/components/SecurityForm/SecurityForm.tsx">
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import api from "../../api/api";
-// We will reuse the same SCSS styles since the layout is identical!
-import "../EditProfileForm/EditProfileForm.scss";
-
-interface InitialSecurityData {
-  first_name?: string;
-  last_name?: string;
-  username?: string;
-  email?: string;
-}
-
-function SecurityForm({ initialData }: { initialData: InitialSecurityData }) {
-  const navigate = useNavigate();
-
-  const [firstName, setFirstName] = useState(initialData.first_name || "");
-  const [lastName, setLastName] = useState(initialData.last_name || "");
-  const [username, setUsername] = useState(initialData.username || "");
-  const [email, setEmail] = useState(initialData.email || "");
-  const [password, setPassword] = useState(""); // Leave blank by default
-
-  const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string[]>>({});
-  const [successMsg, setSuccessMsg] = useState("");
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setErrors({});
-    setSuccessMsg("");
-
-    // Package the data. We ONLY send the password if they actually typed a new one.
-    const payload: any = {
-      first_name: firstName,
-      last_name: lastName,
-      username: username,
-      email: email,
-    };
-
-    if (password.trim() !== "") {
-      payload.password = password;
-    }
-
-    try {
-      await api.patch("/security/update/", payload);
-      setSuccessMsg("Security information updated successfully!");
-      setPassword(""); // Clear the password field
-    } catch (err: any) {
-      if (err.response?.data) setErrors(err.response.data);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <form className="edit-profile-form" onSubmit={handleSubmit}>
-      {errors.detail && <p className="global-error">{errors.detail[0]}</p>}
-      {successMsg && (
-        <p
-          className="global-error"
-          style={{ backgroundColor: "#d4edda", color: "#155724" }}
-        >
-          {successMsg}
-        </p>
-      )}
-
-      <div className="name-row">
-        <div className="input-group">
-          <label>First Name</label>
-          <input
-            type="text"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-            className={`form-input ${errors.first_name ? "input-error" : ""}`}
-          />
-          {errors.first_name && (
-            <span className="error-text">{errors.first_name[0]}</span>
-          )}
-        </div>
-
-        <div className="input-group">
-          <label>Last Name</label>
-          <input
-            type="text"
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-            className={`form-input ${errors.last_name ? "input-error" : ""}`}
-          />
-          {errors.last_name && (
-            <span className="error-text">{errors.last_name[0]}</span>
-          )}
-        </div>
-      </div>
-
-      <div className="input-group">
-        <label>Username</label>
-        <input
-          type="text"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          className={`form-input ${errors.username ? "input-error" : ""}`}
-        />
-        {errors.username && (
-          <span className="error-text">{errors.username[0]}</span>
-        )}
-      </div>
-
-      <div className="input-group">
-        <label>Email Address</label>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className={`form-input ${errors.email ? "input-error" : ""}`}
-        />
-        {errors.email && <span className="error-text">{errors.email[0]}</span>}
-      </div>
-
-      <hr
-        style={{
-          border: "none",
-          borderTop: "1px solid #eee",
-          margin: "15px 0",
-        }}
-      />
-
-      <div className="input-group">
-        <label>Change Password (leave blank to keep current)</label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className={`form-input ${errors.password ? "input-error" : ""}`}
-          placeholder="New Password"
-        />
-        {errors.password && (
-          <span className="error-text">{errors.password[0]}</span>
-        )}
-      </div>
-
-      <div className="form-actions">
-        <button type="submit" className="btn-submit" disabled={loading}>
-          {loading ? "Saving..." : "Update Security Settings"}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-export default SecurityForm;
-</file>
-
-<file path="frontend/src/pages/EditProfile/EditProfile.scss">
-@import "../../styles/variables";
-
-.edit-profile-page {
-  background-color: $bg-light;
-  min-height: 100vh;
-  padding: 30px 15px;
-
-  .top-nav {
-    max-width: 600px;
-    margin: 0 auto 30px auto;
-
-    .btn-back-minimal {
-      background: none;
-      border: none;
-      color: $text-muted;
-      font-size: 1rem;
-      font-weight: 600;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      transition: color 0.2s ease;
-
-      .arrow {
-        transition: transform 0.2s ease;
-      }
-
-      &:hover {
-        color: $primary-color;
-        .arrow {
-          transform: translateX(-4px);
-        }
-      }
-    }
-  }
-
-  .content-wrapper {
-    display: flex;
-    justify-content: center;
-
-    .form-container {
-      background: $white;
-      padding: 40px;
-      border-radius: 15px;
-      box-shadow: $shadow;
-      width: 100%;
-      max-width: 600px;
-
-      h1 {
-        color: $primary-color;
-        font-weight: 800;
-        margin-bottom: 30px;
-        text-align: center;
-      }
-
-      .loading-state {
-        text-align: center;
-        color: $text-muted;
-        padding: 40px 0;
-
-        .spinner {
-          border: 4px solid rgba($primary-color, 0.1);
-          border-left-color: $primary-color;
-          border-radius: 50%;
-          width: 40px;
-          height: 40px;
-          animation: spin 1s linear infinite;
-          margin: 0 auto 15px auto;
-        }
-      }
-    }
-  }
-}
-
-/* Spinner Animation */
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
-</file>
-
-<file path="frontend/src/pages/EditProfile/EditProfile.tsx">
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import api from "../../api/api";
-import EditProfileForm from "../../components/EditProfileForm/EditProfileForm";
-import "./EditProfile.scss";
-
-function EditProfile() {
-  const [initialData, setInitialData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // Fetch the current profile data to pre-fill the form
-    const fetchProfile = async () => {
-      try {
-        const response = await api.get("/account/profile/");
-        setInitialData(response.data);
-      } catch (err) {
-        console.error("Failed to load profile data", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchProfile();
-  }, []);
-
-  return (
-    <div className="edit-profile-page">
-      {/* Top Navigation with Back Button */}
-      <nav className="top-nav">
-        <Link to="/profile" className="btn-back-minimal">
-          <span className="arrow">&larr;</span> Back to Profile
-        </Link>
-      </nav>
-
-      {/* Main Content Wrapper */}
-      <div className="content-wrapper">
-        <div className="form-container">
-          <h1>Edit Profile</h1>
-
-          {loading ? (
-            <div className="loading-state">
-              <div className="spinner"></div>
-              <p>Loading profile data...</p>
-            </div>
-          ) : (
-            <EditProfileForm initialData={initialData || {}} />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default EditProfile;
-</file>
-
-<file path="frontend/src/pages/Security/Security.scss">
-
-</file>
-
-<file path="frontend/src/pages/Security/Security.tsx">
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import api from "../../api/api";
-import SecurityForm from "../../components/SecurityForm/SecurityForm";
-// Reuse the layout styles from EditProfile
-import "../EditProfile/EditProfile.scss";
-
-function Security() {
-  const [initialData, setInitialData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const response = await api.get("/account/profile/");
-        setInitialData(response.data);
-      } catch (err) {
-        console.error("Failed to load security data", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchProfile();
-  }, []);
-
-  return (
-    <div className="edit-profile-page">
-      <nav className="top-nav">
-        <Link to="/profile" className="btn-back-minimal">
-          <span className="arrow">&larr;</span> Back to Profile
-        </Link>
-      </nav>
-
-      <div className="content-wrapper">
-        <div className="form-container">
-          <h1>Account Security</h1>
-
-          {loading ? (
-            <div className="loading-state">
-              <div className="spinner"></div>
-              <p>Loading security data...</p>
-            </div>
-          ) : (
-            <SecurityForm initialData={initialData || {}} />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default Security;
+    @staticmethod
+    def send_activation_email(user: User) -> None:
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+
+        # FRONTEND_URL comes from settings.py, which reads it from .env.
+        # Previously this was hardcoded to localhost — would break in production.
+        link = f"{settings.FRONTEND_URL}/activate/{uid}/{token}"
+
+        send_mail(
+            subject="Confirm your DOT8 Account",
+            message=f"Hi {user.username},\nClick here to activate your account: {link}",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+        )
+
+    @staticmethod
+    def verify_email(uidb64: str, token: str) -> None:
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            raise ValueError("Invalid activation link.")
+
+        if not default_token_generator.check_token(user, token):
+            raise ValueError("Activation link is expired or invalid.")
+
+        user.is_active = True
+        user.save()
+
+    @staticmethod
+    def request_password_reset(email: str) -> None:
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            # Silent fail — don't reveal whether the email exists.
+            return
+
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        link = f"{settings.FRONTEND_URL}/reset-password/{uid}/{token}"
+
+        send_mail(
+            subject="Reset your DOT8 Password",
+            message=f"Click the link to reset your password:\n{link}",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+        )
+
+    @staticmethod
+    def confirm_password_reset(uidb64: str, token: str, new_password: str) -> None:
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            raise ValueError("Invalid reset link.")
+
+        if not default_token_generator.check_token(user, token):
+            raise ValueError("Reset link is expired or invalid.")
+
+        if len(new_password) < 8 or not any(char.isdigit() for char in new_password):
+            raise ValueError("Password must be at least 8 characters and contain a number.")
+
+        user.set_password(new_password)
+        user.save()
 </file>
 
 <file path="backend/apps/posts/migrations/__init__.py">
@@ -949,42 +547,33 @@ class PostsConfig(AppConfig):
     name = 'apps.posts'
 </file>
 
-<file path="backend/apps/posts/helpers.py">
-def user_directory_path(instance, filename):
-    return f'user_{instance.author.id}/post_content/{filename}'
-</file>
-
 <file path="backend/apps/posts/models.py">
+from django.conf import settings  # correct way to import settings in Django
 from django.db import models
-from config import settings
+
 from apps.posts.helpers import user_directory_path
 
-# Create your models here.
 
 class Post(models.Model):
-    # Link to the user, the one who created the post
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='posts'
+        related_name='posts',
     )
-
-    # Content
     title = models.CharField(max_length=100)
     content = models.TextField()
-    image = models.ImageField(upload_to=user_directory_path, null=True, blank=True)#upload to already has instance and filename
-
-
-    # Metadata for bot detection
+    image = models.ImageField(upload_to=user_directory_path, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        ordering = ['-created_at']
+
     def __str__(self):
-        return f"{self.author.username}-{self.title}"
+        return f"{self.author.username} — {self.title}"
 
 
 class Like(models.Model):
-    #the one who created the like
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -993,32 +582,25 @@ class Like(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        # Prevents a user from liking the same post twice at the DB level.
         unique_together = ('author', 'post')
-        ordering = ['-created_at'] #shows the list of likes in descending order
-
-
-
+        ordering = ['-created_at']
 
 
 class Comment(models.Model):
-    #the one who commented
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
     )
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='comments')
-    created_at = models.DateTimeField(auto_now_add=True)
     content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
-    """
-    to understan more clearly, here i can acces both comments from the author and vice versa
-    
-    example:
-    post.comments.all() gets all the comments from one post
-    
-    comment.post gets tge post of that comment, there is only one anyway
-    
-    """
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.author.username} on '{self.post.title}'"
 </file>
 
 <file path="backend/apps/posts/tests.py">
@@ -1128,31 +710,9 @@ class CustomCookieAuthentication(JWTAuthentication):
         return response
 </file>
 
-<file path="backend/apps/user/models.py">
-from django.db import models #the database methods
-from django.contrib.auth.models import AbstractUser #the security methods
-from apps.user.helpers import user_directory_path
-
-
-# Create your models here.
-
-
-class User(AbstractUser):
-    email = models.EmailField(unique=True) #sets email to unique
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-
-
-class Profile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE)     #links the user and the profile
-    profile_pic = models.ImageField(upload_to=user_directory_path, null=True, blank=True)     #the photo stored locally, null for database and blank for frontend(allows them to be empty)
-    bio = models.TextField(null=True, blank=True)               #same here
-    website = models.URLField(null=True, blank=True)
-
-
-    def __str__(self):
-        return self.user.username
+<file path="backend/apps/user/helpers.py">
+def user_directory_path(instance, filename):
+    return f'user_{instance.user.id}/profile_picture/{filename}'
 </file>
 
 <file path="backend/apps/user/tests.py">
@@ -1306,8 +866,10 @@ apps/
     admin.py
     apps.py
     authentication.py
+    helpers.py
     models.py
     serializers.py
+    services.py
     tests.py
     urls.py
     views.py
@@ -1321,10 +883,17 @@ config/
   wsgi.py
 media/
   user_1/
+    profile_picture/
+      download.jpeg
     test_picture.jpg
   user_16/
     06e2328a-c53a-441a-9ff4-575283e8adca.jpg
     Screenshot_2026-02-18_at_18.09.41.png
+  user_28/
+    profile_picture/
+      download.jpeg
+      parrot_picture_kmeans_algorithm.jpg
+    download.jpeg
 __init__.py
 manage.py
 requirements.txt
@@ -1439,7 +1008,7 @@ class PostsConfig(AppConfig):
 
 <file path="apps/posts/helpers.py">
 def user_directory_path(instance, filename):
-    return f'user_{instance.author.id}/{filename}'
+    return f'user_{instance.author.id}/post_content/{filename}'
 </file>
 
 <file path="apps/posts/models.py">
@@ -1832,9 +1401,15 @@ class CustomCookieAuthentication(JWTAuthentication):
         return response
 </file>
 
+<file path="apps/user/helpers.py">
+def user_directory_path(instance, filename):
+    return f'user_{instance.user.id}/profile_picture/{filename}'
+</file>
+
 <file path="apps/user/models.py">
 from django.db import models #the database methods
 from django.contrib.auth.models import AbstractUser #the security methods
+from apps.user.helpers import user_directory_path
 
 
 # Create your models here.
@@ -1849,7 +1424,7 @@ class User(AbstractUser):
 
 class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)     #links the user and the profile
-    profile_pic = models.ImageField(upload_to="profile_pic", null=True, blank=True)     #the photo stored locally, null for database and blank for frontend(allows them to be empty)
+    profile_pic = models.ImageField(upload_to=user_directory_path, null=True, blank=True)     #the photo stored locally, null for database and blank for frontend(allows them to be empty)
     bio = models.TextField(null=True, blank=True)               #same here
     website = models.URLField(null=True, blank=True)
 
@@ -1861,39 +1436,201 @@ class Profile(models.Model):
 <file path="apps/user/serializers.py">
 from rest_framework import serializers
 from .models import User, Profile
-from rest_framework import serializers
 
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        #model and fields are from Meta annotation
-        model = User
-        fields = ['id', 'username', 'email', 'password', 'first_name', 'last_name']
+# 👇 1. INCOMING DATA (Validation Only)
+class UserRegistrationSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    email = serializers.EmailField()
+    password = serializers.CharField()
 
-        extra_kwargs = {'password': {'write_only': True},'id': {'read_only': True}, 'is_staff': {'read_only': True},'is_superuser': {'read_only': True}}
+class UserLoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField()
 
-
-    def create(self, validated_data):
-        return User.objects.create_user(**validated_data)
-
-class UserSerializerSignIn(serializers.Serializer):
-    # We call it 'identifier' so the user can provide either a username OR an email
-    username = serializers.CharField(required=True)
-
-    password = serializers.CharField(
-        style={'input_type': 'password'},
-        write_only=True,
-        required=True
-    )
+class UpdateProfileSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    bio = serializers.CharField(required=False, allow_blank=True)
+    website = serializers.URLField(required=False, allow_blank=True)
+    profile_pic = serializers.ImageField(required=False, allow_null=True)
 
 
-class ProfileSerializer(serializers.ModelSerializer):
-    # We can add a ReadOnlyField to grab the username from the related User model.
-    # 'user.username' traverses the OneToOneField relationship!
+class UpdateSecuritySerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150, required=False)
+    email = serializers.EmailField(required=False)
+    password = serializers.CharField(required=False)
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    new_password = serializers.CharField()
+
+
+# 👇 2. OUTGOING DATA (Formatting Only)
+class ProfileResponseSerializer(serializers.ModelSerializer):
     username = serializers.ReadOnlyField(source='user.username')
+    first_name = serializers.ReadOnlyField(source='user.first_name')
+    last_name = serializers.ReadOnlyField(source='user.last_name')
+    email = serializers.ReadOnlyField(source='user.email')
 
     class Meta:
         model = Profile
-        fields = ['username', 'bio', 'profile_pic', 'website']
+        fields = ['username', 'first_name', 'last_name', 'email', 'bio', 'profile_pic', 'website']
+        read_only_fields = fields
+</file>
+
+<file path="apps/user/services.py">
+from django.contrib.auth import authenticate
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.core.mail import send_mail
+from django.conf import settings
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+
+from .models import User, Profile
+
+
+class ProfileService:
+    """Handles ONLY public-facing profile logic."""
+
+    @staticmethod
+    def create_profile(user: User) -> Profile:
+        profile, _ = Profile.objects.get_or_create(user=user) # tries to get the object, if not then it creates it
+        return profile
+
+    @staticmethod
+    def update_profile(user: User, bio: str = None, website: str = None,profile_pic: str = None) -> Profile:
+        profile = ProfileService.create_profile(user)
+
+        if bio is not None:
+            profile.bio = bio
+        if website is not None:
+            profile.website = website
+
+        if profile_pic is not None:
+            profile.profile_pic = profile_pic
+
+        profile.save()
+        return profile
+
+
+class UserService:
+    """Handles ONLY security, identity, and authentication logic."""
+
+    @staticmethod
+    def register_user(username: str, email: str, password: str) -> User:
+        if User.objects.filter(username=username).exists():
+            raise ValueError("This username is already taken.")
+        if User.objects.filter(email=email).exists():
+            raise ValueError("This email is already registered.")
+        if len(password) < 8 or not any(char.isdigit() for char in password):
+            raise ValueError("Password must be at least 8 characters long.")
+
+        user = User.objects.create_user(username=username, email=email, password=password, is_active=False)
+        return user
+
+    @staticmethod
+    def update_credentials(user: User, username: str = None, email: str = None):
+        """Handles sensitive unique identifiers (Username & Email)."""
+
+        # Check if they are trying to change the username, and if it's available
+        if username and username != user.username:
+            if User.objects.filter(username=username).exists():
+                raise ValueError("This username is already taken.")
+            user.username = username
+
+        # Check if they are trying to change the email, and if it's available
+        if email and email != user.email:
+            if User.objects.filter(email=email).exists():
+                raise ValueError("This email is already registered.")
+            user.email = email
+
+        # If anything changed, save it
+        if username or email:
+            user.save()
+
+    # ... keep your update_password method right below this!
+
+
+class AuthService:
+    FRONTEND_URL = "http://localhost:5173"
+
+    @staticmethod
+    def login(username: str, password: str) -> dict:
+        user = authenticate(username=username, password=password)
+        if not user:
+            raise ValueError("Invalid username or password.")
+
+        refresh = RefreshToken.for_user(user)
+        return {
+            "username": user.username,
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+            "is_active": str(user.is_active)
+        }
+
+    @staticmethod
+    def send_activation_email(user: User):
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        link = f"{AuthService.FRONTEND_URL}/activate/{uid}/{token}"
+
+        send_mail(
+            "Confirm your DOT8 Account",
+            f"Hi {user.username},\nClick here to activate: {link}",
+            settings.DEFAULT_FROM_EMAIL,
+            [user.email],
+        )
+
+    @staticmethod
+    def verify_email(uidb64: str, token: str):
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            raise ValueError("Invalid activation link.")
+
+        if not default_token_generator.check_token(user, token):
+            raise ValueError("Activation link is expired or invalid.")
+
+        user.is_active = True
+        user.save()
+
+    @staticmethod
+    def request_password_reset(email: str):
+        try:
+            user = User.objects.get(email=email)
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            link = f"{AuthService.FRONTEND_URL}/reset-password/{uid}/{token}"
+
+            send_mail(
+                "Reset your DOT8 Password",
+                f"Click the link to reset your password:\n{link}",
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email],
+            )
+        except User.DoesNotExist:
+            pass # Silent fail for security
+
+    @staticmethod
+    def confirm_password_reset(uidb64: str, token: str, new_password: str):
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            raise ValueError("Invalid reset link.")
+
+        if not default_token_generator.check_token(user, token):
+            raise ValueError("Reset link is expired or invalid.")
+
+        if len(new_password) < 8 or not any(char.isdigit() for char in new_password):
+            raise ValueError("Password must be at least 8 characters long and contain a number.")
+
+        user.set_password(new_password)
+        user.save()
 </file>
 
 <file path="apps/user/tests.py">
@@ -1914,6 +1651,12 @@ urlpatterns = [
     path('signIn',views.signInUser, name='signIn'),
     path('signIn/refresh',views.signInUser,name='signIn'),
     path('logout', views.logOutUser, name='logout'),
+    path('profile/update/', views.updateMyProfile, name='update-profile'),
+    path('security/update/', views.updateMySecurity, name='update-security'),
+    path('activate/<str:uidb64>/<str:token>/', views.verifyEmail, name='activate'),
+    path('password-reset/request/', views.requestPasswordReset, name='password-reset-request'),
+    path('password-reset/confirm/<str:uidb64>/<str:token>/', views.confirmPasswordReset, name='password-reset-confirm'),
+
 
 
 
@@ -1921,78 +1664,62 @@ urlpatterns = [
 </file>
 
 <file path="apps/user/views.py">
-from django.contrib.auth import authenticate
-from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_simplejwt.tokens import RefreshToken
-from .serializers import ProfileSerializer
-from .models import User, Profile
-from .serializers import UserSerializerSignIn, UserSerializer
 
+from .serializers import (
+    UserRegistrationSerializer,
+    UserLoginSerializer,
+    UpdateProfileSerializer,
+    UpdateSecuritySerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer,
+    ProfileResponseSerializer
+)
+from .services import UserService, AuthService, ProfileService
+from .models import Profile
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def getAllUsers(request):
-    users = User.objects.all()
-    serializer = UserSerializer(users, many=True)
-    return Response(serializer.data)
 
 @api_view(['POST'])
 def singUpUser(request):
-    serializer = UserSerializer(data=request.data)
-    if serializer.is_valid():
-        user = serializer.save()
-        refresh = RefreshToken.for_user(user)
+    input_serializer = UserRegistrationSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        answer = {"status": "success",
-                  "username": user.username
-        }
-
-        response = Response(answer, status=status.HTTP_201_CREATED)
-        response.set_cookie('access_token', value=str(refresh.access_token), httponly=True)
-        response.set_cookie('refresh_token', value=str(refresh), httponly=True)
-        return response
-
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        user = UserService.register_user(
+            username=input_serializer.validated_data['username'],
+            email=input_serializer.validated_data['email'],
+            password=input_serializer.validated_data['password']
+        )
+        AuthService.send_activation_email(user)
+        return Response({"message": "Please check your email to activate your account."},
+                        status=status.HTTP_201_CREATED)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST'])
 def signInUser(request):
-    serializer = UserSerializerSignIn(data=request.data)
-    if serializer.is_valid():
-        user = authenticate(username=serializer.validated_data['username'], password=serializer.validated_data['password'])
-        if user is not None:
+    input_serializer = UserLoginSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            refresh = RefreshToken.for_user(user)
+    try:
+        auth_data = AuthService.login(
+            username=input_serializer.validated_data['username'],
+            password=input_serializer.validated_data['password']
+        )
 
-            answer = {"status": "success",
-                      "username": user.username
-                      }
+        response = Response({"status": "success", "username": auth_data["username"]}, status=status.HTTP_200_OK)
+        response.set_cookie('access_token', value=auth_data["access_token"], httponly=True)
+        response.set_cookie('refresh_token', value=auth_data["refresh_token"], httponly=True)
+        return response
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
 
-            response = Response(answer, status=status.HTTP_200_OK)
-            response.set_cookie('access_token', value=str(refresh.access_token), httponly=True)
-            response.set_cookie('refresh_token', value=str(refresh), httponly=True)
-            return response
-        return Response({"detail": "Invalid username or password"}, status=status.HTTP_401_UNAUTHORIZED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def getMyProfile(request):
-    # 'request.user' automatically holds the user who owns the JWT token!
-    user = request.user
-
-    # Find the Profile, or create one if it doesn't exist yet (useful for new signups)
-    profile, created = Profile.objects.get_or_create(user=user)
-
-    # Serialize it and return the Response!
-    serializer = ProfileSerializer(profile)
-    return Response(serializer.data)
 
 @api_view(['POST'])
 def logOutUser(request):
@@ -2001,16 +1728,78 @@ def logOutUser(request):
     response.delete_cookie('refresh_token')
     return response
 
+
+@api_view(['POST'])
+def verifyEmail(request, uidb64, token):
+    try:
+        AuthService.verify_email(uidb64, token)
+        return Response({"message": "Account activated successfully!"}, status=status.HTTP_200_OK)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+def requestPasswordReset(request):
+    input_serializer = PasswordResetRequestSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    AuthService.request_password_reset(input_serializer.validated_data['email'])
+    return Response({"message": "If an account exists, a reset link has been sent."}, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def confirmPasswordReset(request, uidb64, token):
+    input_serializer = PasswordResetConfirmSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        AuthService.confirm_password_reset(
+            uidb64=uidb64,
+            token=token,
+            new_password=input_serializer.validated_data['new_password']
+        )
+        return Response({"message": "Password reset successfully. You can now log in."}, status=status.HTTP_200_OK)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def getMyProfile(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    output_serializer = ProfileResponseSerializer(profile)
+    return Response(output_serializer.data)
+
+
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def updateMyProfile(request):
-    serializer = ProfileSerializer(data=request.data)
-    if serializer.is_valid():
-        profile = serializer.save()
-        refresh = RefreshToken.for_user(profile)
-        answer = {"status": "success",
-                  "username": profile.user.username
-                  }
+    input_serializer = UpdateProfileSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        profile = ProfileService.update_profile(request.user, input_serializer.validated_data)
+        output_serializer = ProfileResponseSerializer(profile)
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def updateMySecurity(request):
+    input_serializer = UpdateSecuritySerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        UserService.update_credentials(request.user, input_serializer.validated_data)
+        return Response({"message": "Security info updated successfully."}, status=status.HTTP_200_OK)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 </file>
 
 <file path="apps/__init__.py">
@@ -2217,6 +2006,9 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
 }
+
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'noreply@dot8.com'
 </file>
 
 <file path="config/urls.py">
@@ -2383,12 +2175,12 @@ sqlparse==0.5.5
 </file>
 
 <file path="frontend/src/components/Comments/Comment/CommentCard.tsx">
-import { commentService } from "../../../services/commentService";
-import { Comment } from "../../../interfaces/commentType";
+import { PostComment } from "../../../interfaces/commentType";
 import "./Comment.scss";
 
-function CommentCard({ comment }: { comment: Comment }) {
+function CommentCard({ comment }: { comment: PostComment }) {
   const date = new Date(comment.created_at).toLocaleDateString();
+
   return (
     <div className="comment-object">
       <div className="comment-header">
@@ -2410,13 +2202,30 @@ export default CommentCard;
 </file>
 
 <file path="frontend/src/components/Comments/CommentsBox/CommentsBox.tsx">
-import { Comment } from "../../../interfaces/commentType";
+import { useEffect, useState } from "react";
+import { Post } from "../../../interfaces/postType";
+import { PostComment } from "../../../interfaces/commentType";
+import { commentService } from "../../../services/commentService";
 import CommentCard from "../Comment/CommentCard";
-import { CommentBoxProps } from "../../../interfaces/commentType";
-// We change the props to accept the data directly from the hook
 
-function CommentBox({ comments, loading }: CommentBoxProps) {
-  if (loading) return <div className="loading-small">Loading comments...</div>;
+function CommentBox({ post }: { post: Post }) {
+  const [comments, setComments] = useState<PostComment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    commentService
+      .getComments(post.id)
+      .then((res) => {
+        setComments(res.data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error("Error fetching comments:", err);
+        setLoading(false);
+      });
+  }, [post.id]);
+
+  if (loading) return <div className="feed-status">Loading comments...</div>;
 
   return (
     <main className="comment-box-content">
@@ -2425,59 +2234,15 @@ function CommentBox({ comments, loading }: CommentBoxProps) {
           <CommentCard key={comment.id} comment={comment} />
         ))
       ) : (
-        <p className="no-posts">No comments yet.</p>
+        <p className="no-posts">
+          No comments yet. Be the first to share something!
+        </p>
       )}
     </main>
   );
 }
 
 export default CommentBox;
-</file>
-
-<file path="frontend/src/components/Comments/CommentsTextField/CommentsTextField.scss">
-@use "../../../styles/variables" as *;
-
-.comment-form {
-  margin-top: 15px;
-  padding-top: 15px;
-  border-top: 10x dashed #eee;
-  display: flex;
-  gap: 10px;
-
-  .comment-input {
-    flex: 1;
-    padding: 10px 15px;
-    border: 1px solid #ddd;
-    border-radius: 20px;
-    font-size: 0.9rem;
-    outline: none;
-    transition: border-color 0.3s;
-
-    &:focus {
-      border-color: $primary-color;
-    }
-  }
-
-  .btn-submit-comment {
-    background-color: $primary-color;
-    color: white;
-    border: none;
-    padding: 0 15px;
-    border-radius: 20px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: background-color 0.3s;
-
-    &:disabled {
-      background-color: #ccc;
-      cursor: not-allowed;
-    }
-
-    &:not(:disabled):hover {
-      background-color: darken($primary-color, 10%);
-    }
-  }
-}
 </file>
 
 <file path="frontend/src/components/Comments/CommentsTextField/CommentsTextField.tsx">
@@ -2515,6 +2280,287 @@ function CommentsTextField({
 }
 
 export default CommentsTextField;
+</file>
+
+<file path="frontend/src/components/EditProfileForm/EditProfileForm.scss">
+@use "../../styles/variables" as *;
+
+.edit-profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+
+  .global-error {
+    color: $error-color;
+    text-align: center;
+    background: rgba($error-color, 0.1);
+    padding: 10px;
+    border-radius: $border-radius;
+    font-weight: 600;
+    animation: slideDown 0.2s ease-out;
+  }
+
+  .picture-edit-section {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+
+    .preview-container {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      border: 3px solid $primary-color;
+      overflow: hidden;
+      flex-shrink: 0;
+
+      .preview-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+    }
+
+    .upload-controls {
+      .btn-upload {
+        display: inline-block;
+        background-color: #eee;
+        color: $text-dark;
+        padding: 8px 16px;
+        border-radius: $border-radius;
+        font-weight: 600;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: background-color 0.2s;
+
+        &:hover {
+          background-color: #ddd;
+        }
+      }
+
+      .hidden-input {
+        display: none;
+      }
+      .block {
+        display: block;
+      }
+      .mt-1 {
+        margin-top: 8px;
+      }
+    }
+  }
+
+  .name-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+  }
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    label {
+      font-weight: 600;
+      color: $text-dark;
+      font-size: 0.9rem;
+    }
+
+    .form-input {
+      padding: $input-padding;
+      border: 1px solid #ddd;
+      border-radius: $border-radius;
+      font-size: 0.95rem;
+      font-family: inherit;
+      transition: all 0.3s ease;
+
+      &:focus {
+        border-color: $primary-color;
+        outline: none;
+        &:not(.input-error) {
+          box-shadow: 0 0 0 3px rgba($primary-color, 0.1);
+        }
+      }
+
+      &.input-error {
+        border-color: $error-color;
+        background-color: rgba($error-color, 0.02);
+        &:focus {
+          box-shadow: 0 0 0 3px rgba($error-color, 0.1);
+        }
+      }
+    }
+
+    .error-text {
+      color: $error-color;
+      font-size: 0.8rem;
+      font-weight: 500;
+      padding-left: 5px;
+      animation: slideDown 0.2s ease-out;
+    }
+  }
+
+  .form-actions {
+    margin-top: 10px;
+
+    .btn-submit {
+      width: 100%;
+      background-color: $primary-color;
+      color: $white;
+      padding: 12px;
+      border: none;
+      border-radius: $border-radius;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background-color 0.2s;
+
+      &:hover:not(:disabled) {
+        background-color: $primary-hover;
+      }
+      &:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+    }
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+</file>
+
+<file path="frontend/src/components/EditProfileForm/EditProfileForm.tsx">
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import api from "../../api/api";
+import "./EditProfileForm.scss";
+
+interface InitialProfileData {
+  bio?: string;
+  website?: string;
+  profile_pic?: string | null;
+}
+
+function EditProfileForm({ initialData }: { initialData: InitialProfileData }) {
+  const navigate = useNavigate();
+  const [bio, setBio] = useState(initialData.bio || "");
+  const [website, setWebsite] = useState(initialData.website || "");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string>(
+    initialData.profile_pic || "https://via.placeholder.com/150",
+  );
+
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string[]>>({});
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrors({});
+
+    const formData = new FormData();
+    formData.append("bio", bio);
+    formData.append("website", website);
+    if (imageFile) formData.append("profile_pic", imageFile);
+
+    try {
+      await api.patch("/profile/update/", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      navigate("/profile");
+    } catch (err: any) {
+      if (err.response?.data) setErrors(err.response.data);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form className="edit-profile-form" onSubmit={handleSubmit}>
+      {errors.detail && <p className="global-error">{errors.detail[0]}</p>}
+
+      <div className="picture-edit-section">
+        <div className="preview-container">
+          <img
+            src={previewUrl}
+            alt="Profile Preview"
+            className="preview-image"
+          />
+        </div>
+        <div className="upload-controls">
+          <label htmlFor="profile-upload" className="btn-upload">
+            Choose New Picture
+          </label>
+          <input
+            id="profile-upload"
+            type="file"
+            accept="image/*"
+            onChange={handleImageChange}
+            className="hidden-input"
+          />
+          {errors.profile_pic && (
+            <span className="error-text block mt-1">
+              {errors.profile_pic[0]}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="input-group">
+        <label>Website</label>
+        <input
+          type="url"
+          value={website}
+          onChange={(e) => setWebsite(e.target.value)}
+          className={`form-input ${errors.website ? "input-error" : ""}`}
+          placeholder="https://yourwebsite.com"
+        />
+        {errors.website && (
+          <span className="error-text">{errors.website[0]}</span>
+        )}
+      </div>
+
+      <div className="input-group">
+        <label>Bio</label>
+        <textarea
+          value={bio}
+          onChange={(e) => setBio(e.target.value)}
+          className={`form-input ${errors.bio ? "input-error" : ""}`}
+          placeholder="Tell people about yourself..."
+          rows={4}
+        />
+        {errors.bio && <span className="error-text">{errors.bio[0]}</span>}
+      </div>
+
+      <div className="form-actions">
+        <button type="submit" className="btn-submit" disabled={loading}>
+          {loading ? "Saving..." : "Save Profile"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+export default EditProfileForm;
 </file>
 
 <file path="frontend/src/components/PostsGrid/PostsGrid.scss">
@@ -2602,76 +2648,182 @@ function PostsGrid({ posts, onPostClick }: PostsGridProps) {
 export default PostsGrid;
 </file>
 
-<file path="frontend/src/components/SettingsDropdown/SettingsDropdown.scss">
-@use "../../styles/variables" as *;
+<file path="frontend/src/components/SecurityForm/SecurityForm.tsx">
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import api from "../../api/api";
+// We will reuse the same SCSS styles since the layout is identical!
+import "../EditProfileForm/EditProfileForm.scss";
 
-.settings-container {
-  position: relative; // Essential so the dropdown floats relative to this button
-
-  .dropdown-menu {
-    position: absolute;
-    top: calc(100% + 8px); // Pushes it right below the button
-    left: 0;
-    background-color: $white;
-    border: 1px solid #eee;
-    border-radius: 12px;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-    width: 200px;
-    display: flex;
-    flex-direction: column;
-    padding: 8px 0;
-    z-index: 100; // Keeps it on top of other content
-    animation: slideDown 0.2s ease-out forwards;
-
-    .dropdown-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 20px;
-      background: none;
-      border: none;
-      color: $text-dark;
-      font-size: 0.95rem;
-      font-weight: 500;
-      text-align: left;
-      text-decoration: none;
-      cursor: pointer;
-      font-family: inherit;
-      transition: background-color 0.2s ease;
-
-      &:hover {
-        background-color: #f8f9fa;
-        color: $primary-color;
-      }
-    }
-
-    .text-danger {
-      color: $error-color;
-      &:hover {
-        color: darken($error-color, 10%);
-        background-color: rgba($error-color, 0.05);
-      }
-    }
-
-    .dropdown-divider {
-      height: 1px;
-      background-color: #eee;
-      margin: 6px 0;
-    }
-  }
+interface InitialSecurityData {
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  email?: string;
 }
 
-/* Tiny animation to make the menu pop open smoothly */
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+function SecurityForm({ initialData }: { initialData: InitialSecurityData }) {
+  const navigate = useNavigate();
+
+  const [firstName, setFirstName] = useState(initialData.first_name || "");
+  const [lastName, setLastName] = useState(initialData.last_name || "");
+  const [username, setUsername] = useState(initialData.username || "");
+  const [email, setEmail] = useState(initialData.email || "");
+  const [password, setPassword] = useState(""); // Leave blank by default
+  const [confirmPassword, setConfirmPassword] = useState(""); // 👈 1. ADD THIS
+
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string[]>>({});
+  const [successMsg, setSuccessMsg] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrors({});
+    setSuccessMsg("");
+
+    // Package the data. We ONLY send the password if they actually typed a new one.
+    const payload: any = {
+      first_name: firstName,
+      last_name: lastName,
+      username: username,
+      email: email,
+    };
+
+    // 👈 2. REPLACE THE EXISTING PASSWORD CHECK WITH THIS:
+    if (password.trim() !== "") {
+      if (password !== confirmPassword) {
+        setErrors({ confirm_password: ["Passwords do not match."] });
+        setLoading(false);
+        return;
+      }
+      payload.password = password;
+      payload.confirm_password = confirmPassword;
+    }
+
+    try {
+      await api.patch("/security/update/", payload);
+      setSuccessMsg("Security information updated successfully!");
+      setPassword(""); // Clear the password field
+      setConfirmPassword(""); // 👈 3. ADD THIS
+    } catch (err: any) {
+      if (err.response?.data) setErrors(err.response.data);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form className="edit-profile-form" onSubmit={handleSubmit}>
+      {errors.detail && <p className="global-error">{errors.detail[0]}</p>}
+      {successMsg && (
+        <p
+          className="global-error"
+          style={{ backgroundColor: "#d4edda", color: "#155724" }}
+        >
+          {successMsg}
+        </p>
+      )}
+
+      <div className="name-row">
+        <div className="input-group">
+          <label>First Name</label>
+          <input
+            type="text"
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+            className={`form-input ${errors.first_name ? "input-error" : ""}`}
+          />
+          {errors.first_name && (
+            <span className="error-text">{errors.first_name[0]}</span>
+          )}
+        </div>
+
+        <div className="input-group">
+          <label>Last Name</label>
+          <input
+            type="text"
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            className={`form-input ${errors.last_name ? "input-error" : ""}`}
+          />
+          {errors.last_name && (
+            <span className="error-text">{errors.last_name[0]}</span>
+          )}
+        </div>
+      </div>
+
+      <div className="input-group">
+        <label>Username</label>
+        <input
+          type="text"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          className={`form-input ${errors.username ? "input-error" : ""}`}
+        />
+        {errors.username && (
+          <span className="error-text">{errors.username[0]}</span>
+        )}
+      </div>
+
+      <div className="input-group">
+        <label>Email Address</label>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className={`form-input ${errors.email ? "input-error" : ""}`}
+        />
+        {errors.email && <span className="error-text">{errors.email[0]}</span>}
+      </div>
+
+      <hr
+        style={{
+          border: "none",
+          borderTop: "1px solid #eee",
+          margin: "15px 0",
+        }}
+      />
+
+      <div className="input-group">
+        <label>Change Password (leave blank to keep current)</label>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className={`form-input ${errors.password ? "input-error" : ""}`}
+          placeholder="New Password"
+        />
+        {errors.password && (
+          <span className="error-text">{errors.password[0]}</span>
+        )}
+      </div>
+
+      {/* 👈 4. ADD THIS NEW CONFIRM FIELD RIGHT BELOW THE EXISTING PASSWORD FIELD */}
+      <div className="input-group">
+        <label>Confirm New Password</label>
+        <input
+          type="password"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          className={`form-input ${errors.confirm_password ? "input-error" : ""}`}
+          placeholder="Confirm New Password"
+        />
+        {errors.confirm_password && (
+          <span className="error-text">{errors.confirm_password[0]}</span>
+        )}
+      </div>
+
+      <div className="form-actions">
+        <button type="submit" className="btn-submit" disabled={loading}>
+          {loading ? "Saving..." : "Update Security Settings"}
+        </button>
+      </div>
+    </form>
+  );
 }
+
+export default SecurityForm;
 </file>
 
 <file path="frontend/src/components/SettingsDropdown/SettingsDropdown.tsx">
@@ -2803,48 +2955,23 @@ export const useAuth = () => {
 </file>
 
 <file path="frontend/src/hooks/useCommentsPost.ts">
-import { useState, useEffect } from "react";
-import { Comment } from "../interfaces/commentType";
+import { useState } from "react";
 import { Post } from "../interfaces/postType";
+import { PostComment } from "../interfaces/commentType";
 import { commentService } from "../services/commentService";
 
 export const useCommentPost = (post: Post) => {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState("");
-  const [comments, setComments] = useState<Comment[]>([]); // New state for the list
   const [commentsCount, setCommentsCount] = useState(post.comments_count);
-  const [loading, setLoading] = useState(false);
-
-  // Fetch comments when the user toggles the box open
-  useEffect(() => {
-    if (showComments) {
-      setLoading(true);
-      commentService
-        .getComments(post.id)
-        .then((res) => {
-          setComments(res.data);
-          setLoading(false);
-        })
-        .catch((err) => {
-          console.error("Error fetching comments:", err);
-          setLoading(false);
-        });
-    }
-  }, [showComments, post.id]);
 
   const handleCommentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!commentText.trim()) return;
 
     try {
-      const response = await commentService.createComment(post.id, commentText);
-
-      // SYNTAX EXPLANATION:
-      // We use the functional update (prev => [...prev, new]) to ensure we don't
-      // lose comments if the state updates rapidly. We append the new comment
-      // returned from the Django server to our local array.
-      setComments((prev) => [...prev, response.data]);
-
+      await commentService.createComment(post.id, commentText);
       setCommentText("");
       setCommentsCount((prev) => prev + 1);
     } catch (error) {
@@ -2853,14 +2980,12 @@ export const useCommentPost = (post: Post) => {
   };
 
   return {
-    comments,
-    loading,
     commentsCount,
     commentText,
     setCommentText,
     handleCommentSubmit,
-    setShowComments,
     showComments,
+    setShowComments,
   };
 };
 </file>
@@ -2868,7 +2993,7 @@ export const useCommentPost = (post: Post) => {
 <file path="frontend/src/interfaces/commentType.ts">
 import { Post } from "../interfaces/postType";
 
-export interface Comment {
+export interface PostComment {
   id: number;
   author: string;
   content: string;
@@ -2900,14 +3025,6 @@ export interface Post {
   likes_count: number;
   comments_count: number;
   is_liked: boolean;
-}
-</file>
-
-<file path="frontend/src/interfaces/userType.ts">
-export interface UserProfile {
-  username: string;
-  bio: string;
-  profile_pic: string | null;
 }
 </file>
 
@@ -3426,49 +3543,234 @@ function CreatePost() {
 export default CreatePost;
 </file>
 
-<file path="frontend/src/pages/Home/Home.scss">
-@import "../../styles/variables";
+<file path="frontend/src/pages/EditProfile/EditProfile.scss">
+@use "../../styles/variables" as *;
 
-.home-page {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
+.edit-profile-page {
   background-color: $bg-light;
-  text-align: center;
+  min-height: 100vh;
+  padding: 30px 15px;
 
-  .logo-main {
-    font-size: 5rem;
-    font-weight: 900;
-    font-family: monospace;
-    background: linear-gradient(45deg, $primary-color, #6610f2);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin-bottom: 2rem;
-  }
+  .top-nav {
+    max-width: 600px;
+    margin: 0 auto 30px auto;
 
-  .nav-links {
-    display: flex;
-    gap: 20px;
-
-    .btn-link {
-      text-decoration: none;
-      color: $text-dark;
-      border: 2px solid $text-dark;
-      padding: 12px 30px;
-      border-radius: 30px;
+    .btn-back-minimal {
+      background: none;
+      border: none;
+      color: $text-muted;
+      font-size: 1rem;
       font-weight: 600;
-      transition: all 0.3s ease;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: color 0.2s ease;
+
+      .arrow {
+        transition: transform 0.2s ease;
+      }
 
       &:hover {
-        background-color: $text-dark;
-        color: $white;
-        transform: translateY(-3px);
+        color: $primary-color;
+        .arrow {
+          transform: translateX(-4px);
+        }
+      }
+    }
+  }
+
+  .content-wrapper {
+    display: flex;
+    justify-content: center;
+
+    .form-container {
+      background: $white;
+      padding: 40px;
+      border-radius: 15px;
+      box-shadow: $shadow;
+      width: 100%;
+      max-width: 600px;
+
+      h1 {
+        color: $primary-color;
+        font-weight: 800;
+        margin-bottom: 30px;
+        text-align: center;
+      }
+
+      .loading-state {
+        text-align: center;
+        color: $text-muted;
+        padding: 40px 0;
+
+        .spinner {
+          border: 4px solid rgba($primary-color, 0.1);
+          border-left-color: $primary-color;
+          border-radius: 50%;
+          width: 40px;
+          height: 40px;
+          animation: spin 1s linear infinite;
+          margin: 0 auto 15px auto;
+        }
       }
     }
   }
 }
+
+/* Spinner Animation */
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+</file>
+
+<file path="frontend/src/pages/EditProfile/EditProfile.tsx">
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import api from "../../api/api";
+import EditProfileForm from "../../components/EditProfileForm/EditProfileForm";
+import "./EditProfile.scss";
+
+function EditProfile() {
+  const [initialData, setInitialData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Fetch the current profile data to pre-fill the form
+    const fetchProfile = async () => {
+      try {
+        const response = await api.get("/account/profile/");
+        setInitialData(response.data);
+      } catch (err) {
+        console.error("Failed to load profile data", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProfile();
+  }, []);
+
+  return (
+    <div className="edit-profile-page">
+      {/* Top Navigation with Back Button */}
+      <nav className="top-nav">
+        <Link to="/profile" className="btn-back-minimal">
+          <span className="arrow">&larr;</span> Back to Profile
+        </Link>
+      </nav>
+
+      {/* Main Content Wrapper */}
+      <div className="content-wrapper">
+        <div className="form-container">
+          <h1>Edit Profile</h1>
+
+          {loading ? (
+            <div className="loading-state">
+              <div className="spinner"></div>
+              <p>Loading profile data...</p>
+            </div>
+          ) : (
+            <EditProfileForm initialData={initialData || {}} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default EditProfile;
+</file>
+
+<file path="frontend/src/pages/ForgotPassword/ForgotPassword.tsx">
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import api from "../../api/api";
+import "../SignIn/SignIn.scss"; // Reusing your auth container styles!
+
+function ForgotPassword() {
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState<
+    "idle" | "loading" | "success" | "error"
+  >("idle");
+  const [message, setMessage] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStatus("loading");
+    setMessage("");
+
+    try {
+      const response = await api.post("/password-reset/request/", { email });
+      setStatus("success");
+      setMessage(response.data.message);
+    } catch (err: any) {
+      setStatus("error");
+      setMessage("Something went wrong. Please try again.");
+    }
+  };
+
+  return (
+    <div className="signin-page">
+      <div className="auth-container">
+        <Link to="/signin" className="btn-back-auth">
+          <span className="arrow">&larr;</span> Back to Sign In
+        </Link>
+
+        <h1 style={{ marginBottom: "10px" }}>Forgot Password?</h1>
+        <p
+          style={{
+            textAlign: "center",
+            color: "#6c757d",
+            marginBottom: "30px",
+          }}
+        >
+          Enter your email address and we'll send you a link to reset your
+          password.
+        </p>
+
+        {status === "success" ? (
+          <div
+            style={{ textAlign: "center", color: "#28a745", fontWeight: "600" }}
+          >
+            <p>{message}</p>
+          </div>
+        ) : (
+          <form className="signin-form" onSubmit={handleSubmit}>
+            {status === "error" && <p className="global-error">{message}</p>}
+
+            <div className="input-group">
+              <input
+                type="email"
+                placeholder="Email Address"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+
+            <div className="form-actions" style={{ marginTop: "15px" }}>
+              <button
+                type="submit"
+                className="btn-submit"
+                disabled={status === "loading"}
+                style={{ width: "100%" }}
+              >
+                {status === "loading" ? "Sending..." : "Send Reset Link"}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default ForgotPassword;
 </file>
 
 <file path="frontend/src/pages/Home/Home.tsx">
@@ -3492,6 +3794,177 @@ function Home() {
 }
 
 export default Home;
+</file>
+
+<file path="frontend/src/pages/ResetPassword/ResetPassword.tsx">
+import { useState } from "react";
+import { useParams, Link } from "react-router-dom";
+import api from "../../api/api";
+import "../SignIn/SignIn.scss";
+
+function ResetPassword() {
+  const { uid, token } = useParams<{ uid: string; token: string }>();
+
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [status, setStatus] = useState<
+    "idle" | "loading" | "success" | "error"
+  >("idle");
+  const [message, setMessage] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (newPassword !== confirmPassword) {
+      setStatus("error");
+      setMessage("Passwords do not match.");
+      return;
+    }
+
+    setStatus("loading");
+    try {
+      // Send the new_password to the backend endpoint using the URL parameters
+      const response = await api.post(
+        `/password-reset/confirm/${uid}/${token}/`,
+        {
+          new_password: newPassword,
+        },
+      );
+      setStatus("success");
+      setMessage(response.data.message);
+    } catch (err: any) {
+      setStatus("error");
+      setMessage(
+        err.response?.data?.error || "Link is invalid or has expired.",
+      );
+    }
+  };
+
+  return (
+    <div className="signin-page">
+      <div className="auth-container">
+        <h1 style={{ marginBottom: "20px" }}>Set New Password</h1>
+
+        {status === "success" ? (
+          <div style={{ textAlign: "center" }}>
+            <p
+              style={{
+                color: "#28a745",
+                fontWeight: "600",
+                marginBottom: "20px",
+              }}
+            >
+              {message}
+            </p>
+            <Link
+              to="/signin"
+              className="btn-submit"
+              style={{ textDecoration: "none", display: "inline-block" }}
+            >
+              Go to Sign In
+            </Link>
+          </div>
+        ) : (
+          <form className="signin-form" onSubmit={handleSubmit}>
+            {status === "error" && <p className="global-error">{message}</p>}
+
+            <div className="input-group">
+              <input
+                type="password"
+                placeholder="New Password"
+                required
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </div>
+
+            <div className="input-group" style={{ marginTop: "15px" }}>
+              <input
+                type="password"
+                placeholder="Confirm New Password"
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+
+            <div className="form-actions" style={{ marginTop: "20px" }}>
+              <button
+                type="submit"
+                className="btn-submit"
+                disabled={status === "loading"}
+                style={{ width: "100%" }}
+              >
+                {status === "loading" ? "Saving..." : "Reset Password"}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default ResetPassword;
+</file>
+
+<file path="frontend/src/pages/Security/Security.scss">
+
+</file>
+
+<file path="frontend/src/pages/Security/Security.tsx">
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import api from "../../api/api";
+import SecurityForm from "../../components/SecurityForm/SecurityForm";
+// Reuse the layout styles from EditProfile
+import "../EditProfile/EditProfile.scss";
+
+function Security() {
+  const [initialData, setInitialData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const response = await api.get("/account/profile/");
+        setInitialData(response.data);
+      } catch (err) {
+        console.error("Failed to load security data", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProfile();
+  }, []);
+
+  return (
+    <div className="edit-profile-page">
+      <nav className="top-nav">
+        <Link to="/profile" className="btn-back-minimal">
+          <span className="arrow">&larr;</span> Back to Profile
+        </Link>
+      </nav>
+
+      <div className="content-wrapper">
+        <div className="form-container">
+          <h1>Account Security</h1>
+
+          {loading ? (
+            <div className="loading-state">
+              <div className="spinner"></div>
+              <p>Loading security data...</p>
+            </div>
+          ) : (
+            <SecurityForm initialData={initialData || {}} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default Security;
 </file>
 
 <file path="frontend/src/services/commentService.ts">
@@ -3581,110 +4054,69 @@ $shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
 }
 </file>
 
-<file path="frontend/vite.config.ts">
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-
-// https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [react()],
-})
+<file path="backend/apps/posts/helpers.py">
+def user_directory_path(instance, filename):
+    return f'user_{instance.author.id}/post_content/{filename}'
 </file>
 
 <file path="backend/apps/posts/serializers.py">
-from datetime import timedelta
-from django.utils import timezone
+from rest_framework import serializers
 
 from apps.posts.models import Post, Comment, Like
-from rest_framework import serializers
 
 
 class PostSerializer(serializers.ModelSerializer):
+    # ReadOnlyField with source= pulls a value from a related object
+    # without exposing the full foreign key integer.
+    author = serializers.ReadOnlyField(source='author.username')
+
+    # SerializerMethodField lets you compute a value with a custom method.
     likes_count = serializers.SerializerMethodField()
     comments_count = serializers.SerializerMethodField()
     is_liked = serializers.SerializerMethodField()
+
     class Meta:
         model = Post
-        fields = ['id','author','title','content','created_at','image','likes_count','comments_count','is_liked']
-
-    author = serializers.ReadOnlyField(source='author.username')
-    """on this one i have to write a little because im just starting to understand how this works
-    the thin is i need to validate that a person cannot make more than 20 posts in one day, for bot spamming reasons
-    so i have to get the user who s logged in, i have to request the data
-    then i have to define the beggining of the dau 
-    
-    """
-    def validate(self, data):
-        # get the data from the authenticated user
-        user = self.context['request'].user
-        # set a variable with the beggining of the day
-        today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-
-        # count how many posts have the timestamp greater or equal with the beggining of the day, if thee are more than 20 then raise error
-        #objects is used to use methods for the models
-        count = Post.objects.filter(author=user, created_at__gte = today_start).count()
-
-        if count >= 20:
-            raise serializers.ValidationError('You cannot post more than 20 posts in one day')
-        #i wanted to put here validated data but this happens before is validated, im just learning now its not my fault
-        return data
+        fields = [
+            'id', 'author', 'title', 'content',
+            'created_at', 'image',
+            'likes_count', 'comments_count', 'is_liked',
+        ]
 
     def get_likes_count(self, post):
         return post.likes.count()
+
     def get_comments_count(self, post):
         return post.comments.count()
 
-    def get_is_liked(self, obj):
-        # Grab the user making the request from the context
+    def get_is_liked(self, post):
+        # self.context['request'] is passed in by the ViewSet automatically.
         request = self.context.get('request')
-
-        # If they are logged in, check if a Like exists for them on this post
         if request and request.user.is_authenticated:
-            return Like.objects.filter(post=obj, author=request.user).exists()
-
+            # We check against the prefetched likes queryset (set up in the ViewSet)
+            # so this does NOT trigger an extra DB query per post.
+            return post.likes.filter(author=request.user).exists()
         return False
 
 
 class CommentSerializer(serializers.ModelSerializer):
     author = serializers.ReadOnlyField(source='author.username')
+
     class Meta:
         model = Comment
-        fields = ['id', 'author','content', 'created_at']
-
-    def validate(self, data):
-        user = self.context['request'].user
-
-        # set a variable for the time of the comment an hour ago
-        hour_beginning = timezone.now() - timedelta(hours=1)
-
-        #count all the cooments left by an user that happened after an hour ago, if there are more than 20 raise error
-        count = Comment.objects.filter(author=user, created_at__gte = hour_beginning).count()
-
-        if count >= 20:
-            raise serializers.ValidationError('You cannot post more than 20 comments in one day')
-        return data
+        fields = ['id', 'author', 'content', 'created_at']
 
 
 class LikeSerializer(serializers.ModelSerializer):
     author = serializers.ReadOnlyField(source='author.username')
+
     class Meta:
         model = Like
-        fields = ['id','author', 'post_id','created_at']
-
-        read_only_fields = ['post_id']
-
-    def validate(self, data):
-        user = self.context['request'].user
-
-        # set a variable for the time of the comment an hour ago
-        hour_beginning = timezone.now() - timedelta(hours=1)
-
-        # count all the likes left by an user that happened after an hour ago, if there are more than 20 raise error
-        count = Like.objects.filter(author=user, created_at__gte=hour_beginning).count()
-
-        if count >= 300:
-            raise serializers.ValidationError('Take a break bro')
-        return data
+        # post is set by the ViewSet's perform_create, not by the client.
+        # author is read-only (comes from the token).
+        # 'post' is intentionally excluded from fields so the client
+        # can't pass an arbitrary post_id — the URL param controls that.
+        fields = ['id', 'author', 'created_at']
 </file>
 
 <file path="backend/apps/posts/urls.py">
@@ -3716,6 +4148,33 @@ urlpatterns = [
          )
 
 ]
+</file>
+
+<file path="backend/apps/user/models.py">
+from django.db import models #the database methods
+from django.contrib.auth.models import AbstractUser #the security methods
+from apps.user.helpers import user_directory_path
+
+
+# Create your models here.
+
+
+class User(AbstractUser):
+    email = models.EmailField(unique=True) #sets email to unique
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+
+class Profile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)     #links the user and the profile
+    profile_pic = models.ImageField(upload_to=user_directory_path, null=True, blank=True)     #the photo stored locally, null for database and blank for frontend(allows them to be empty)
+    bio = models.TextField(null=True, blank=True)               #same here
+    website = models.URLField(null=True, blank=True)
+
+
+    def __str__(self):
+        return self.user.username
 </file>
 
 <file path="frontend/src/api/api.ts">
@@ -3760,6 +4219,53 @@ api.interceptors.request.use(
 );
 
 export default api;
+</file>
+
+<file path="frontend/src/components/Comments/CommentsTextField/CommentsTextField.scss">
+@use "../../../styles/variables" as *;
+@use "sass:color";
+
+.comment-form {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 10x dashed #eee;
+  display: flex;
+  gap: 10px;
+
+  .comment-input {
+    flex: 1;
+    padding: 10px 15px;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.3s;
+
+    &:focus {
+      border-color: $primary-color;
+    }
+  }
+
+  .btn-submit-comment {
+    background-color: $primary-color;
+    color: white;
+    border: none;
+    padding: 0 15px;
+    border-radius: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.3s;
+
+    &:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+
+    &:not(:disabled):hover {
+      background-color: darken($primary-color, 10%);
+    }
+  }
+}
 </file>
 
 <file path="frontend/src/components/PostCard/PostCard.scss">
@@ -4026,492 +4532,77 @@ export default PostCard;
 }
 </file>
 
-<file path="frontend/src/components/ProfileHeader/ProfileHeader.tsx">
-import { UserProfile } from "../../interfaces/userType";
-import { Link } from "react-router-dom";
-import "./ProfileHeader.scss";
-import SettingsDropdown from "../SettingsDropdown/SettingsDropdown";
+<file path="frontend/src/components/SettingsDropdown/SettingsDropdown.scss">
+@use "../../styles/variables" as *;
+@use "sass:color";
 
-function ProfileHeader({ profile }: { profile: UserProfile }) {
-  return (
-    <header className="profile-header">
-      <div className="profile-picture-container">
-        <img
-          src={profile.profile_pic || "https://via.placeholder.com/150"}
-          alt={profile.username}
-          className="profile-picture"
-        />
-      </div>
-      <div className="profile-info">
-        <h2 className="username">{profile.username}</h2>
-        <p className="description">
-          {profile.bio || "No description provided."}
-        </p>
-        <div className="profile-actions">
-          {/* Use the class 'btn-secondary' so it matches the Settings button */}
-          <Link to="/create-post" className="btn-secondary">
-            Create Post
-          </Link>
-          <SettingsDropdown></SettingsDropdown>
-        </div>
-      </div>
-    </header>
-  );
-}
+.settings-container {
+  position: relative; // Essential so the dropdown floats relative to this button
 
-export default ProfileHeader;
-</file>
-
-<file path="frontend/src/components/SignInForm/SignInForm.scss">
-@import "../../styles/variables";
-
-.signin-form {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  gap: 15px; // Use gap instead of margin-bottom
-
-  .global-error {
-    color: $error-color;
-    text-align: center;
-    background: rgba($error-color, 0.1);
-    padding: 10px;
-    border-radius: $border-radius;
-    margin: 0;
-    font-size: 0.9rem;
-    font-weight: 600;
-    animation: slideDown 0.2s ease-out;
-  }
-
-  .input-group {
+  .dropdown-menu {
+    position: absolute;
+    top: calc(100% + 8px); // Pushes it right below the button
+    left: 0;
+    background-color: $white;
+    border: 1px solid #eee;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    width: 200px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    padding: 8px 0;
+    z-index: 100; // Keeps it on top of other content
+    animation: slideDown 0.2s ease-out forwards;
 
-    .form-input {
-      padding: $input-padding;
-      border: 1px solid #ddd;
-      border-radius: $border-radius;
-      font-size: 1rem;
-      transition: all 0.3s ease;
-
-      &:focus {
-        border-color: $primary-color;
-        outline: none;
-        // Only show this shadow if it's NOT an error state
-        &:not(.input-error) {
-          box-shadow: 0 0 0 3px rgba($primary-color, 0.1);
-        }
-      }
-
-      /* 👇 The dynamic error border 👇 */
-      &.input-error {
-        border-color: $error-color;
-        background-color: rgba($error-color, 0.02);
-
-        &:focus {
-          box-shadow: 0 0 0 3px rgba($error-color, 0.1);
-        }
-      }
-    }
-
-    /* 👇 The red error text 👇 */
-    .error-text {
-      color: $error-color;
-      font-size: 0.8rem;
-      font-weight: 500;
-      padding-left: 5px;
-      animation: slideDown 0.2s ease-out;
-    }
-  }
-
-  .form-actions {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 5px;
-
-    .btn-reset {
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
       background: none;
       border: none;
-      color: $text-muted;
-      cursor: pointer;
-      font-size: 0.9rem;
-      padding: 8px; // Add a little padding to make it easier to click
-      border-radius: $border-radius;
-      transition: all 0.2s;
-
-      &:hover {
-        color: $text-dark;
-        background-color: #f8f9fa;
-      }
-    }
-
-    .btn-submit {
-      background-color: $primary-color;
-      color: $white;
-      border: none;
-      padding: 12px 25px;
-      border-radius: $border-radius;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.3s;
-
-      &:hover:not(:disabled) {
-        background-color: $primary-hover;
-      }
-
-      &:disabled {
-        background-color: #ccc;
-        cursor: not-allowed;
-      }
-    }
-  }
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-</file>
-
-<file path="frontend/src/components/SignInForm/SignInForm.tsx">
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import api from "../../api/api";
-import "./SignInForm.scss";
-
-function SignInForm() {
-  const navigate = useNavigate();
-  // State to hold Django's error messages
-  const [errors, setErrors] = useState<Record<string, string[]>>({});
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setErrors({}); // Clear previous errors
-    setLoading(true);
-
-    const formData = new FormData(e.currentTarget);
-    const data = Object.fromEntries(formData.entries());
-
-    try {
-      const response = await api.post("/signIn", data);
-      if (response.status === 200) {
-        navigate("/feed"); // Or wherever you want them to go after signing in
-      }
-    } catch (err: any) {
-      console.error("Sign in failed:", err);
-      // If Django sends back specific field errors (e.g., {"username": ["..."]})
-      if (err.response && err.response.data) {
-        setErrors(err.response.data);
-      } else {
-        // Fallback for network issues or unexpected errors
-        setErrors({ detail: ["Something went wrong. Please try again."] });
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="signin-form">
-      {/* Display generic errors (like "Invalid username or password") */}
-      {errors.detail && <p className="global-error">{errors.detail}</p>}
-
-      <div className="input-group">
-        <input
-          type="text"
-          name="username"
-          placeholder="Username"
-          required
-          className={`form-input ${errors.username ? "input-error" : ""}`}
-        />
-        {errors.username && (
-          <span className="error-text">{errors.username[0]}</span>
-        )}
-      </div>
-
-      <div className="input-group">
-        <input
-          type="password"
-          name="password"
-          placeholder="Password"
-          required
-          className={`form-input ${errors.password ? "input-error" : ""}`}
-        />
-        {errors.password && (
-          <span className="error-text">{errors.password[0]}</span>
-        )}
-      </div>
-
-      <div className="form-actions">
-        <button
-          type="reset"
-          className="btn-reset"
-          onClick={() => setErrors({})}
-        >
-          Clear
-        </button>
-        <button type="submit" className="btn-submit" disabled={loading}>
-          {loading ? "Signing In..." : "Sign In"}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-export default SignInForm;
-</file>
-
-<file path="frontend/src/components/SignUpForm/SignUpForm.scss">
-@import "../../styles/variables";
-
-.signup-form {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  gap: 15px; // Replaces margin-bottom on individual inputs
-
-  .global-error {
-    color: $error-color;
-    text-align: center;
-    background: rgba($error-color, 0.1);
-    padding: 10px;
-    border-radius: $border-radius;
-    margin: 0;
-    font-size: 0.9rem;
-    font-weight: 600;
-  }
-
-  .input-group {
-    display: flex;
-    flex-direction: column;
-    gap: 4px; // Space between input and error text
-
-    .form-input {
-      padding: $input-padding;
-      border: 1px solid #ddd;
-      border-radius: $border-radius;
+      color: $text-dark;
       font-size: 0.95rem;
-      transition: all 0.3s ease;
-
-      &:focus {
-        border-color: $primary-color;
-        outline: none;
-      }
-
-      /* 👇 The dynamic error border 👇 */
-      &.input-error {
-        border-color: $error-color;
-        background-color: rgba($error-color, 0.02);
-
-        &:focus {
-          box-shadow: 0 0 0 3px rgba($error-color, 0.1);
-        }
-      }
-    }
-
-    /* 👇 The red error text 👇 */
-    .error-text {
-      color: $error-color;
-      font-size: 0.8rem;
       font-weight: 500;
-      padding-left: 5px;
-      animation: slideDown 0.2s ease-out;
-    }
-  }
-
-  .name-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-
-  .form-footer {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-top: 5px;
-
-    .btn-signup {
-      background-color: $primary-color;
-      color: $white;
-      padding: 14px;
-      border: none;
-      border-radius: $border-radius;
-      font-weight: 700;
+      text-align: left;
+      text-decoration: none;
       cursor: pointer;
-      transition: background-color 0.2s;
-
-      &:hover:not(:disabled) {
-        background-color: $primary-hover;
-      }
-
-      &:disabled {
-        background-color: #ccc;
-        cursor: not-allowed;
-      }
-    }
-
-    .btn-clear {
-      background: none;
-      border: 1px solid #ddd;
-      padding: 8px;
-      border-radius: $border-radius;
-      color: $text-muted;
-      cursor: pointer;
-      transition: all 0.2s;
+      font-family: inherit;
+      transition: background-color 0.2s ease;
 
       &:hover {
         background-color: #f8f9fa;
-        color: $text-dark;
+        color: $primary-color;
       }
+    }
+
+    .text-danger {
+      color: $error-color;
+      &:hover {
+        color: darken($error-color, 10%);
+        background-color: rgba($error-color, 0.05);
+      }
+    }
+
+    .dropdown-divider {
+      height: 1px;
+      background-color: #eee;
+      margin: 6px 0;
     }
   }
 }
 
+/* Tiny animation to make the menu pop open smoothly */
 @keyframes slideDown {
   from {
     opacity: 0;
-    transform: translateY(-5px);
+    transform: translateY(-10px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
   }
 }
-</file>
-
-<file path="frontend/src/components/SignUpForm/SignUpForm.tsx">
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import api from "../../api/api";
-import "./SignUpForm.scss";
-
-function SignUpForm() {
-  const navigate = useNavigate();
-  // State to hold Django's error messages
-  const [errors, setErrors] = useState<Record<string, string[]>>({});
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setErrors({}); // Clear previous errors
-    setLoading(true);
-
-    const formData = new FormData(e.currentTarget);
-    const data = Object.fromEntries(formData.entries());
-
-    try {
-      const response = await api.post("/signUp", data);
-      if (response.status === 200 || response.status === 201) {
-        navigate("/check-email");
-      }
-    } catch (err: any) {
-      console.error("Sign up failed:", err);
-      // If Django sends back form validation errors, save them to state!
-      if (err.response && err.response.data) {
-        setErrors(err.response.data);
-      } else {
-        setErrors({ general: ["Something went wrong. Please try again."] });
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="signup-form">
-      {errors.general && <p className="global-error">{errors.general[0]}</p>}
-
-      <div className="input-group">
-        <input
-          type="text"
-          name="username"
-          placeholder="Username"
-          className={`form-input ${errors.username ? "input-error" : ""}`}
-          required
-        />
-        {errors.username && (
-          <span className="error-text">{errors.username[0]}</span>
-        )}
-      </div>
-
-      <div className="input-group">
-        <input
-          type="email"
-          name="email"
-          placeholder="Email Address"
-          className={`form-input ${errors.email ? "input-error" : ""}`}
-          required
-        />
-        {errors.email && <span className="error-text">{errors.email[0]}</span>}
-      </div>
-
-      <div className="input-group">
-        <input
-          type="password"
-          name="password"
-          placeholder="Password"
-          className={`form-input ${errors.password ? "input-error" : ""}`}
-          required
-        />
-        {errors.password && (
-          <span className="error-text">{errors.password[0]}</span>
-        )}
-      </div>
-
-      <div className="name-row">
-        <div className="input-group">
-          <input
-            type="text"
-            name="first_name"
-            placeholder="First Name"
-            className={`form-input ${errors.first_name ? "input-error" : ""}`}
-            required
-          />
-          {errors.first_name && (
-            <span className="error-text">{errors.first_name[0]}</span>
-          )}
-        </div>
-        <div className="input-group">
-          <input
-            type="text"
-            name="last_name"
-            placeholder="Last Name"
-            className={`form-input ${errors.last_name ? "input-error" : ""}`}
-            required
-          />
-          {errors.last_name && (
-            <span className="error-text">{errors.last_name[0]}</span>
-          )}
-        </div>
-      </div>
-
-      <div className="form-footer">
-        <button type="submit" className="btn-signup" disabled={loading}>
-          {loading ? "Creating Account..." : "Create Account"}
-        </button>
-        <button
-          type="reset"
-          className="btn-clear"
-          onClick={() => setErrors({})}
-        >
-          Start Over
-        </button>
-      </div>
-    </form>
-  );
-}
-
-export default SignUpForm;
 </file>
 
 <file path="frontend/src/helpers/submitAction.ts">
@@ -4547,27 +4638,22 @@ export default async function SubmitAction(
 </file>
 
 <file path="frontend/src/hooks/usePostActions.ts">
-// hooks/usePostActions.ts
 import { useState } from "react";
-import { postService } from "../services/postService";
 import { Post } from "../interfaces/postType";
-import api from "../api/api";
-import { commentService } from "../services/commentService";
+import { postService } from "../services/postService";
 
 export const usePostActions = (post: Post) => {
-  // --- STATE FOR LIKES ---
   const [likesCount, setLikesCount] = useState(post.likes_count);
   const [isLiked, setIsLiked] = useState(post.is_liked);
 
-  // 1. Handle Like Click
   const handleLike = async () => {
-    // Optimistic UI Update (Instantly change the screen)
+    // Optimistic UI: update the screen immediately, then sync with the server.
+    // If the server fails, we revert.
     const newLikedState = !isLiked;
     setIsLiked(newLikedState);
     setLikesCount((prev) => (newLikedState ? prev + 1 : prev - 1));
 
     try {
-      // NOTE: Ensure this URL matches your Django urls.py for nested routers!
       if (newLikedState) {
         await postService.likePost(post.id);
       } else {
@@ -4575,13 +4661,11 @@ export const usePostActions = (post: Post) => {
       }
     } catch (error) {
       console.error("Failed to toggle like", error);
-      // Revert the UI if the server failed
+      // Revert on failure
       setIsLiked(!newLikedState);
       setLikesCount((prev) => (newLikedState ? prev - 1 : prev + 1));
     }
   };
-
-  // 2. Handle Comment Submit
 
   return {
     isLiked,
@@ -4589,6 +4673,14 @@ export const usePostActions = (post: Post) => {
     handleLike,
   };
 };
+</file>
+
+<file path="frontend/src/interfaces/userType.ts">
+export interface UserProfile {
+  username: string;
+  bio: string;
+  profile_pic: string | null;
+}
 </file>
 
 <file path="frontend/src/pages/Feed/Feed.scss">
@@ -4662,6 +4754,51 @@ export const usePostActions = (post: Post) => {
     text-align: center;
     margin-top: 50px;
     color: $text-muted;
+  }
+}
+</file>
+
+<file path="frontend/src/pages/Home/Home.scss">
+@use "../../styles/variables" as *;
+
+.home-page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: $bg-light;
+  text-align: center;
+
+  .logo-main {
+    font-size: 5rem;
+    font-weight: 900;
+    font-family: monospace;
+    background: linear-gradient(45deg, $primary-color, #6610f2);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 2rem;
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 20px;
+
+    .btn-link {
+      text-decoration: none;
+      color: $text-dark;
+      border: 2px solid $text-dark;
+      padding: 12px 30px;
+      border-radius: 30px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+
+      &:hover {
+        background-color: $text-dark;
+        color: $white;
+        transform: translateY(-3px);
+      }
+    }
   }
 }
 </file>
@@ -4840,60 +4977,6 @@ function Profile() {
 export default Profile;
 </file>
 
-<file path="frontend/src/pages/SignIn/SignIn.scss">
-@import "../../styles/variables";
-
-.signin-page {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-  background-color: $bg-light;
-
-  .auth-container {
-    background: $white;
-    padding: 40px;
-    border-radius: 15px;
-    box-shadow: $shadow;
-    width: 100%;
-    max-width: 400px;
-
-    /* 👇 New Back Button Styles 👇 */
-    .btn-back-auth {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      text-decoration: none;
-      color: $text-muted;
-      font-weight: 600;
-      font-size: 0.95rem;
-      margin-bottom: 20px;
-      transition: color 0.2s ease;
-
-      .arrow {
-        transition: transform 0.2s ease;
-      }
-
-      &:hover {
-        color: $primary-color;
-
-        /* Makes the arrow slide to the left on hover */
-        .arrow {
-          transform: translateX(-4px);
-        }
-      }
-    }
-
-    h1 {
-      color: $primary-color;
-      font-weight: 700;
-      text-align: center;
-      margin-bottom: 30px;
-    }
-  }
-}
-</file>
-
 <file path="frontend/src/pages/SignIn/SignIn.tsx">
 import SignInForm from "../../components/SignInForm/SignInForm";
 import "./SignIn.scss";
@@ -4913,59 +4996,6 @@ function SignIn() {
 }
 
 export default SignIn;
-</file>
-
-<file path="frontend/src/pages/SignUp/SignUp.scss">
-@import "../../styles/variables";
-
-.signup-page {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-  background-color: $bg-light;
-
-  .auth-container {
-    background: $white;
-    padding: 40px;
-    border-radius: 15px;
-    box-shadow: $shadow;
-    width: 100%;
-    max-width: 400px;
-
-    /* 👇 New Back Button Styles 👇 */
-    .btn-back-auth {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      text-decoration: none;
-      color: $text-muted;
-      font-weight: 600;
-      font-size: 0.95rem;
-      margin-bottom: 20px;
-      transition: color 0.2s ease;
-
-      .arrow {
-        transition: transform 0.2s ease;
-      }
-
-      &:hover {
-        color: $primary-color;
-
-        .arrow {
-          transform: translateX(-4px);
-        }
-      }
-    }
-
-    h1 {
-      color: $primary-color;
-      font-weight: 700;
-      text-align: center;
-      margin-bottom: 30px;
-    }
-  }
-}
 </file>
 
 <file path="frontend/src/pages/SignUp/SignUp.tsx">
@@ -6448,148 +6478,656 @@ export default defineConfig({
 </files>
 </file>
 
+<file path="frontend/vite.config.ts">
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  css: {
+    preprocessorOptions: {
+      scss: {
+        api: "modern-compiler",
+      },
+    },
+  },
+});
+</file>
+
 <file path="backend/apps/posts/views.py">
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, permissions
-from .models import Post, Comment, Like
-from .serializers import PostSerializer, CommentSerializer, LikeSerializer
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-
-# Create your views here.
-class IsAuthorOrReadOnly(permissions.BasePermission):
-    def has_object_permission(self, request, view, obj):
-        if request.method in permissions.SAFE_METHODS: # GET, HEAD, OPTIONS
-            return True
-        return obj.author == request.user # Only the author can PUT or DELETe
-
+from .models import Post, Comment, Like
+from .permissions import IsAuthorOrReadOnly
+from .serializers import PostSerializer, CommentSerializer, LikeSerializer
 
 
 class PostViewSet(viewsets.ModelViewSet):
-    queryset = Post.objects.all().order_by('-created_at')
+    queryset = Post.objects.all()
     serializer_class = PostSerializer
-
     permission_classes = (permissions.IsAuthenticated, IsAuthorOrReadOnly)
+
+    def get_queryset(self):
+        # prefetch_related('likes') fetches all likes for the returned posts
+        # in a single extra query instead of one query per post.
+        # Without this, get_is_liked() would hit the DB once per post (N+1 problem).
+        return Post.objects.prefetch_related('likes', 'comments').order_by('-created_at')
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
 
+
 class CommentViewSet(viewsets.ModelViewSet):
-
     serializer_class = CommentSerializer
-
     permission_classes = (permissions.IsAuthenticated, IsAuthorOrReadOnly)
+
+    def get_queryset(self):
+        # Only return comments that belong to the post in the URL.
+        post_id = self.kwargs.get('post_pk')
+        return Comment.objects.filter(post_id=post_id)
 
     def perform_create(self, serializer):
         post_id = self.kwargs.get('post_pk')
         post_instance = get_object_or_404(Post, id=post_id)
-        serializer.save(author=self.request.user, post=post_instance)# this takes the user from the token
-
-
-    def get_queryset(self):
-        queryset = Comment.objects.all()
-
-        post_id = self.kwargs.get('post_pk')
-        return Comment.objects.filter(post_id=post_id)
+        serializer.save(author=self.request.user, post=post_instance)
 
 
 class LikeViewSet(viewsets.ModelViewSet):
     serializer_class = LikeSerializer
     permission_classes = (permissions.IsAuthenticated, IsAuthorOrReadOnly)
 
-    def perform_create(self, serializer):
-        post_id = self.kwargs.get('post_pk')
-
-        # 2. Fetch the actual Post object from the database
-        post_instance = get_object_or_404(Post, id=post_id)
-
-        # 3. Save the Like with BOTH the author AND the post attached!
-        # 👇 If "post=post_instance" is missing here, you get that IntegrityError! 👇
-        serializer.save(author=self.request.user, post=post_instance)
     def get_queryset(self):
-        queryset = Like.objects.all()
-
         post_id = self.kwargs.get('post_pk')
         return Like.objects.filter(post_id=post_id)
 
-    def destroy(self, request, *args, **kwargs):
+    def perform_create(self, serializer):
+        post_id = self.kwargs.get('post_pk')
+        post_instance = get_object_or_404(Post, id=post_id)
+        serializer.save(author=self.request.user, post=post_instance)
 
+    def destroy(self, request, *args, **kwargs):
         post_id = self.kwargs.get('post_pk')
 
-        like_to_delete = Like.objects.filter(post_id=post_id,author=self.request.user)
+        # Find the like by post + current user (no pk needed in the URL).
+        like_to_delete = Like.objects.filter(post_id=post_id, author=request.user)
+
         if like_to_delete.exists():
             like_to_delete.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
-        else:
-            return Response({"detail": "You haven't liked this post."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(
+            {"detail": "You haven't liked this post."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
 
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def getMyPosts(request):
-    # Filter posts to only include those created by the logged-in user
-    user_posts = Post.objects.filter(author=request.user).order_by('-created_at')
-
-    # We pass the request in the context so the Serializer can calculate 'is_liked'
+    user_posts = Post.objects.filter(author=request.user).prefetch_related('likes', 'comments')
     serializer = PostSerializer(user_posts, many=True, context={'request': request})
     return Response(serializer.data)
 </file>
 
 <file path="backend/config/urls.py">
-"""
-URL configuration for config project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/6.0/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
+from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
-from django.urls import path, include
-from rest_framework_simplejwt import views as jwt_views
-
-from config import settings
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/v1/', include('apps.user.urls')),
-    path('api/v1/account/',include('apps.posts.urls')),
+    path('api/v1/account/', include('apps.posts.urls')),
 ]
-
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 </file>
 
+<file path="frontend/src/components/ProfileHeader/ProfileHeader.tsx">
+import { UserProfile } from "../../interfaces/userType";
+import { Link } from "react-router-dom";
+import "./ProfileHeader.scss";
+import SettingsDropdown from "../SettingsDropdown/SettingsDropdown";
+
+function ProfileHeader({ profile }: { profile: UserProfile }) {
+  return (
+    <header className="profile-header">
+      <div className="profile-picture-container">
+        <img
+          src={profile.profile_pic || "https://via.placeholder.com/150"}
+          alt={profile.username}
+          className="profile-picture"
+        />
+      </div>
+      <div className="profile-info">
+        <h2 className="username">{profile.username}</h2>
+        <p className="description">
+          {profile.bio || "No description provided."}
+        </p>
+        <div className="profile-actions">
+          {/* Use the class 'btn-secondary' so it matches the Settings button */}
+          <Link to="/create-post" className="btn-secondary">
+            Create Post
+          </Link>
+          <SettingsDropdown></SettingsDropdown>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+export default ProfileHeader;
+</file>
+
+<file path="frontend/src/components/SignInForm/SignInForm.scss">
+@use "../../styles/variables" as *;
+
+.signin-form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 15px; // Use gap instead of margin-bottom
+
+  .global-error {
+    color: $error-color;
+    text-align: center;
+    background: rgba($error-color, 0.1);
+    padding: 10px;
+    border-radius: $border-radius;
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    animation: slideDown 0.2s ease-out;
+  }
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .form-input {
+      padding: $input-padding;
+      border: 1px solid #ddd;
+      border-radius: $border-radius;
+      font-size: 1rem;
+      transition: all 0.3s ease;
+
+      &:focus {
+        border-color: $primary-color;
+        outline: none;
+        // Only show this shadow if it's NOT an error state
+        &:not(.input-error) {
+          box-shadow: 0 0 0 3px rgba($primary-color, 0.1);
+        }
+      }
+
+      /* 👇 The dynamic error border 👇 */
+      &.input-error {
+        border-color: $error-color;
+        background-color: rgba($error-color, 0.02);
+
+        &:focus {
+          box-shadow: 0 0 0 3px rgba($error-color, 0.1);
+        }
+      }
+    }
+
+    /* 👇 The red error text 👇 */
+    .error-text {
+      color: $error-color;
+      font-size: 0.8rem;
+      font-weight: 500;
+      padding-left: 5px;
+      animation: slideDown 0.2s ease-out;
+    }
+  }
+
+  .form-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 5px;
+
+    .btn-reset {
+      background: none;
+      border: none;
+      color: $text-muted;
+      cursor: pointer;
+      font-size: 0.9rem;
+      padding: 8px; // Add a little padding to make it easier to click
+      border-radius: $border-radius;
+      transition: all 0.2s;
+
+      &:hover {
+        color: $text-dark;
+        background-color: #f8f9fa;
+      }
+    }
+
+    .btn-submit {
+      background-color: $primary-color;
+      color: $white;
+      border: none;
+      padding: 12px 25px;
+      border-radius: $border-radius;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s;
+
+      &:hover:not(:disabled) {
+        background-color: $primary-hover;
+      }
+
+      &:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+    }
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+</file>
+
+<file path="frontend/src/components/SignInForm/SignInForm.tsx">
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import api from "../../api/api";
+import "./SignInForm.scss";
+import { Link } from "react-router-dom";
+
+function SignInForm() {
+  const navigate = useNavigate();
+  // State to hold Django's error messages
+  const [errors, setErrors] = useState<Record<string, string[]>>({});
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setErrors({}); // Clear previous errors
+    setLoading(true);
+
+    const formData = new FormData(e.currentTarget);
+    const data = Object.fromEntries(formData.entries());
+
+    try {
+      const response = await api.post("/signIn/", data);
+      if (response.status === 200) {
+        navigate("/feed"); // Or wherever you want them to go after signing in
+      }
+    } catch (err: any) {
+      console.error("Sign in failed:", err);
+      // If Django sends back specific field errors (e.g., {"username": ["..."]})
+      if (err.response && err.response.data) {
+        setErrors(err.response.data);
+      } else {
+        // Fallback for network issues or unexpected errors
+        setErrors({ detail: ["Something went wrong. Please try again."] });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="signin-form">
+      {/* Display generic errors (like "Invalid username or password") */}
+      {errors.detail && <p className="global-error">{errors.detail}</p>}
+
+      <div className="input-group">
+        <input
+          type="text"
+          name="username"
+          placeholder="Username"
+          required
+          className={`form-input ${errors.username ? "input-error" : ""}`}
+        />
+        {errors.username && (
+          <span className="error-text">{errors.username[0]}</span>
+        )}
+      </div>
+
+      <div className="input-group">
+        <input
+          type="password"
+          name="password"
+          placeholder="Password"
+          required
+          className={`form-input ${errors.password ? "input-error" : ""}`}
+        />
+        {errors.password && (
+          <span className="error-text">{errors.password[0]}</span>
+        )}
+      </div>
+
+      <div className="form-actions">
+        <button
+          type="reset"
+          className="btn-reset"
+          onClick={() => setErrors({})}
+        >
+          Clear
+        </button>
+        <button type="submit" className="btn-submit" disabled={loading}>
+          {loading ? "Signing In..." : "Sign In"}
+        </button>
+
+        <div style={{ textAlign: "center" }}>
+          <Link
+            to="/forgot-password"
+            style={{
+              color: "#9414e3",
+              textDecoration: "none",
+              fontSize: "0.9rem",
+              fontWeight: "600",
+            }}
+          >
+            Forgot Password?
+          </Link>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+export default SignInForm;
+</file>
+
+<file path="frontend/src/components/SignUpForm/SignUpForm.scss">
+@use "../../styles/variables" as *;
+.signup-form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 15px; // Replaces margin-bottom on individual inputs
+
+  .global-error {
+    color: $error-color;
+    text-align: center;
+    background: rgba($error-color, 0.1);
+    padding: 10px;
+    border-radius: $border-radius;
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px; // Space between input and error text
+
+    .form-input {
+      padding: $input-padding;
+      border: 1px solid #ddd;
+      border-radius: $border-radius;
+      font-size: 0.95rem;
+      transition: all 0.3s ease;
+
+      &:focus {
+        border-color: $primary-color;
+        outline: none;
+      }
+
+      /* 👇 The dynamic error border 👇 */
+      &.input-error {
+        border-color: $error-color;
+        background-color: rgba($error-color, 0.02);
+
+        &:focus {
+          box-shadow: 0 0 0 3px rgba($error-color, 0.1);
+        }
+      }
+    }
+
+    /* 👇 The red error text 👇 */
+    .error-text {
+      color: $error-color;
+      font-size: 0.8rem;
+      font-weight: 500;
+      padding-left: 5px;
+      animation: slideDown 0.2s ease-out;
+    }
+  }
+
+  .name-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .form-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 5px;
+
+    .btn-signup {
+      background-color: $primary-color;
+      color: $white;
+      padding: 14px;
+      border: none;
+      border-radius: $border-radius;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background-color 0.2s;
+
+      &:hover:not(:disabled) {
+        background-color: $primary-hover;
+      }
+
+      &:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+    }
+
+    .btn-clear {
+      background: none;
+      border: 1px solid #ddd;
+      padding: 8px;
+      border-radius: $border-radius;
+      color: $text-muted;
+      cursor: pointer;
+      transition: all 0.2s;
+
+      &:hover {
+        background-color: #f8f9fa;
+        color: $text-dark;
+      }
+    }
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+</file>
+
+<file path="frontend/src/components/SignUpForm/SignUpForm.tsx">
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import api from "../../api/api";
+import "./SignUpForm.scss";
+
+function SignUpForm() {
+  const navigate = useNavigate();
+  const [errors, setErrors] = useState<Record<string, string[]>>({});
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setErrors({});
+    setLoading(true);
+
+    const formData = new FormData(e.currentTarget);
+    const data = Object.fromEntries(formData.entries());
+
+    // We can let the backend handle the mismatch error, or catch it right here to save an API call
+    if (data.password !== data.confirm_password) {
+      setErrors({ confirm_password: ["Passwords do not match."] });
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const response = await api.post("/signUp", data);
+      if (response.status === 200 || response.status === 201) {
+        navigate("/check-email");
+      }
+    } catch (err: any) {
+      if (err.response && err.response.data) {
+        setErrors(err.response.data);
+      } else {
+        setErrors({ general: ["Something went wrong. Please try again."] });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="signup-form">
+      {errors.general && <p className="global-error">{errors.general[0]}</p>}
+
+      {/* ... keeping your existing username and email inputs ... */}
+
+      <div className="input-group">
+        <input
+          type="text"
+          name="username"
+          placeholder="Username"
+          className={`form-input ${errors.username ? "input-error" : ""}`}
+          required
+        />
+        {errors.username && (
+          <span className="error-text">{errors.username[0]}</span>
+        )}
+      </div>
+
+      <div className="input-group">
+        <input
+          type="email"
+          name="email"
+          placeholder="Email Address"
+          className={`form-input ${errors.email ? "input-error" : ""}`}
+          required
+        />
+        {errors.email && <span className="error-text">{errors.email[0]}</span>}
+      </div>
+
+      <div className="input-group">
+        <input
+          type="password"
+          name="password"
+          placeholder="Password"
+          className={`form-input ${errors.password ? "input-error" : ""}`}
+          required
+        />
+        {errors.password && (
+          <span className="error-text">{errors.password[0]}</span>
+        )}
+      </div>
+
+      {/* 👇 NEW CONFIRM PASSWORD FIELD 👇 */}
+      <div className="input-group">
+        <input
+          type="password"
+          name="confirm_password"
+          placeholder="Confirm Password"
+          className={`form-input ${errors.confirm_password ? "input-error" : ""}`}
+          required
+        />
+        {errors.confirm_password && (
+          <span className="error-text">{errors.confirm_password[0]}</span>
+        )}
+      </div>
+
+      <div className="name-row">
+        <div className="input-group">
+          <input
+            type="text"
+            name="first_name"
+            placeholder="First Name"
+            className={`form-input ${errors.first_name ? "input-error" : ""}`}
+            required
+          />
+          {errors.first_name && (
+            <span className="error-text">{errors.first_name[0]}</span>
+          )}
+        </div>
+        <div className="input-group">
+          <input
+            type="text"
+            name="last_name"
+            placeholder="Last Name"
+            className={`form-input ${errors.last_name ? "input-error" : ""}`}
+            required
+          />
+          {errors.last_name && (
+            <span className="error-text">{errors.last_name[0]}</span>
+          )}
+        </div>
+      </div>
+
+      <div className="form-footer">
+        <button type="submit" className="btn-signup" disabled={loading}>
+          {loading ? "Creating Account..." : "Create Account"}
+        </button>
+        <button
+          type="reset"
+          className="btn-clear"
+          onClick={() => setErrors({})}
+        >
+          Start Over
+        </button>
+      </div>
+    </form>
+  );
+}
+
+export default SignUpForm;
+</file>
+
 <file path="frontend/src/pages/Feed/Feed.tsx">
 import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import api from "../../api/api";
 import PostCard from "../../components/PostCard/PostCard";
+import { Post } from "../../interfaces/postType";
 import "./Feed.scss";
-import { Link } from "react-router-dom"; // ADD THIS IMPORT
-import { useNavigate } from "react-router-dom";
 
 function Feed() {
-  const [posts, setPosts] = useState([]);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Replace with your actual backend endpoint from urls.py
     api
-      .get("/account/posts/")
+      .get<Post[]>("/account/posts/")
       .then((res) => {
         setPosts(res.data);
         setLoading(false);
@@ -6600,29 +7138,26 @@ function Feed() {
       });
   }, []);
 
+  const handleLogout = async () => {
+    try {
+      await api.post("/logout/");
+      navigate("/");
+    } catch (err) {
+      console.error("Logout failed", err);
+    }
+  };
+
   if (loading) return <div className="feed-status">Loading feed...</div>;
 
   return (
     <div className="feed-page">
       <nav className="feed-nav">
         <h1 className="logo-small">DOT8</h1>
-
-        {/* REPLACE existing btn-logout WITH this nav-actions div */}
         <div className="nav-actions">
           <Link to="/profile" className="btn-profile">
             Profile
           </Link>
-          <button
-            className="btn-logout"
-            onClick={async () => {
-              try {
-                await api.post("/logout"); // Tells Django to delete the cookies
-                navigate("/"); // Redirects to Home
-              } catch (err) {
-                console.error("Logout failed", err);
-              }
-            }}
-          >
+          <button className="btn-logout" onClick={handleLogout}>
             Log out
           </button>
         </div>
@@ -6630,7 +7165,7 @@ function Feed() {
 
       <main className="feed-content">
         {posts.length > 0 ? (
-          posts.map((post: any) => <PostCard key={post.id} post={post} />)
+          posts.map((post) => <PostCard key={post.id} post={post} />)
         ) : (
           <p className="no-posts">
             No posts yet. Be the first to share something!
@@ -6644,322 +7179,139 @@ function Feed() {
 export default Feed;
 </file>
 
-<file path="backend/apps/user/serializers.py">
-from rest_framework import serializers
-from .models import User, Profile
-from rest_framework import serializers
+<file path="frontend/src/pages/SignIn/SignIn.scss">
+@use "../../styles/variables" as *;
 
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        #model and fields are from Meta annotation
-        model = User
-        fields = ['id', 'username', 'email', 'password', 'first_name', 'last_name']
+.signin-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: $bg-light;
 
-        extra_kwargs = {'password': {'write_only': True},'id': {'read_only': True}, 'is_staff': {'read_only': True},'is_superuser': {'read_only': True}}
+  .auth-container {
+    background: $white;
+    padding: 40px;
+    border-radius: 15px;
+    box-shadow: $shadow;
+    width: 100%;
+    max-width: 400px;
 
-    def validate_password(self, value):
-        if len(value) < 8:
-            raise serializers.ValidationError("Password must be at least 8 characters long.")
-        if not any(char.isdigit() for char in value):
-            raise serializers.ValidationError("Password must contain at least one number.")
-        return value
+    /* 👇 New Back Button Styles 👇 */
+    .btn-back-auth {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+      color: $text-muted;
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 20px;
+      transition: color 0.2s ease;
 
-    # 👇 2. General Field Validation 👇
-    def validate_first_name(self, value):
-        if len(value) < 2:
-            raise serializers.ValidationError("First name is too short.")
-        return value
+      .arrow {
+        transition: transform 0.2s ease;
+      }
 
-    def validate_last_name(self, value):
-        if len(value) < 2:
-            raise serializers.ValidationError("Last name is too short.")
-        return value
-    def validate_email(self, value):
-        if len(value) < 2:
-            raise serializers.ValidationError("Email is too short.")
+      &:hover {
+        color: $primary-color;
 
-        elif User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("Email already exists.")
+        /* Makes the arrow slide to the left on hover */
+        .arrow {
+          transform: translateX(-4px);
+        }
+      }
+    }
 
-        elif "@" not in value:
-            raise serializers.ValidationError("Email must have @")
-        else:
-            return value
+    h1 {
+      color: $primary-color;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+  }
+}
+</file>
 
-    def validate_username(self, value):
-        if len(value) < 2:
-            raise serializers.ValidationError("Username is too short.")
-        # Check if username already exists
-        elif User.objects.filter(username=value).exists():
-            raise serializers.ValidationError("This username is already taken.")
+<file path="frontend/src/pages/SignUp/SignUp.scss">
+@use "../../styles/variables" as *;
 
-        return value
+.signup-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: $bg-light;
 
+  .auth-container {
+    background: $white;
+    padding: 40px;
+    border-radius: 15px;
+    box-shadow: $shadow;
+    width: 100%;
+    max-width: 400px;
 
-    def create(self, validated_data):
-        return User.objects.create_user(**validated_data)
+    /* 👇 New Back Button Styles 👇 */
+    .btn-back-auth {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+      color: $text-muted;
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 20px;
+      transition: color 0.2s ease;
 
-    def update(self, instance, validated_data):
-        if 'password' in validated_data:
-            password = validated_data.pop('password')
-            instance.set_password(password)  # Hashes the new password!
+      .arrow {
+        transition: transform 0.2s ease;
+      }
 
-        return super().update(instance, validated_data)
+      &:hover {
+        color: $primary-color;
 
-class UserSerializerSignIn(serializers.Serializer):
-    # We call it 'identifier' so the user can provide either a username OR an email
-    username = serializers.CharField(required=True)
+        .arrow {
+          transform: translateX(-4px);
+        }
+      }
+    }
 
-    password = serializers.CharField(
-        style={'input_type': 'password'},
-        write_only=True,
-        required=True
-    )
-
-
-class ProfileSerializer(serializers.ModelSerializer):
-    # We can add a ReadOnlyField to grab the username from the related User model.
-    # 'user.username' traverses the OneToOneField relationship!
-    username = serializers.ReadOnlyField(source='user.username')
-    first_name = serializers.ReadOnlyField(source='user.first_name')
-    last_name = serializers.ReadOnlyField(source='user.last_name')
-    email = serializers.ReadOnlyField(source='user.email')
-
-    class Meta:
-        model = Profile
-        fields = ['username', 'first_name', 'last_name', 'email', 'bio', 'profile_pic', 'website']
+    h1 {
+      color: $primary-color;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+  }
+}
 </file>
 
 <file path="backend/apps/user/urls.py">
 from django.urls import path
-from apps.user  import views
+from rest_framework_simplejwt.views import TokenRefreshView
 
-
+from apps.user import views
 
 urlpatterns = [
-    path('all', views.getAllUsers, name='all'),
-    path('signUp', views.singUpUser, name='singUp'),
-    path('signIn',views.signInUser, name='signIn'),
-    path('signIn/refresh',views.signInUser,name='signIn'),
-    path('logout', views.logOutUser, name='logout'),
-    path('profile/update/', views.updateMyProfile, name='update-profile'),
-    path('security/update/', views.updateMySecurity, name='update-security'),
+    # Auth
+    path('signUp/', views.singUpUser, name='sign-up'),
+    path('signIn/', views.signInUser, name='sign-in'),
+    # TokenRefreshView reads the refresh_token, validates it, and issues a new access_token.
+    # Your old code pointed this at signInUser which just tried to log in — wrong.
+    path('signIn/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
+    path('logout/', views.logOutUser, name='logout'),
+
+    # Email activation
     path('activate/<str:uidb64>/<str:token>/', views.verifyEmail, name='activate'),
+
+    # Password reset flow
     path('password-reset/request/', views.requestPasswordReset, name='password-reset-request'),
     path('password-reset/confirm/<str:uidb64>/<str:token>/', views.confirmPasswordReset, name='password-reset-confirm'),
 
-
-
-
+    # Profile & security
+    path('profile/update/', views.updateMyProfile, name='update-profile'),
+    path('security/update/', views.updateMySecurity, name='update-security'),
 ]
-</file>
-
-<file path="backend/apps/user/views.py">
-from django.contrib.auth import authenticate
-from django.http import HttpResponse
-from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework_simplejwt.tokens import RefreshToken
-from .serializers import ProfileSerializer
-from .models import User, Profile
-from .serializers import UserSerializerSignIn, UserSerializer
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def getAllUsers(request):
-    users = User.objects.all()
-    serializer = UserSerializer(users, many=True)
-    return Response(serializer.data)
-
-
-from django.core.mail import send_mail
-from django.contrib.auth.tokens import default_token_generator
-from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
-from django.utils.encoding import force_bytes, force_str
-from django.conf import settings
-
-
-# ... keep your existing imports ...
-
-@api_view(['POST'])
-def singUpUser(request):
-    serializer = UserSerializer(data=request.data)
-    if serializer.is_valid():
-        # 1. Save the user, but don't activate them yet
-        user = serializer.save(is_active=False)
-
-        # 2. Generate a secure token and encode the user's ID
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = default_token_generator.make_token(user)
-
-        # 3. Create the activation link (This points to your React frontend!)
-        activation_link = f"http://localhost:5173/activate/{uid}/{token}"
-
-        # 4. Send the email
-        send_mail(
-            subject="Confirm your DOT8 Account",
-            message=f"Hi {user.username},\n\nPlease click the link below to activate your account:\n{activation_link}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-        )
-
-        return Response({
-            "status": "success",
-            "message": "Please check your email to activate your account."
-        }, status=status.HTTP_201_CREATED)
-
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-# 👇 NEW: Verify Email View 👇
-@api_view(['POST'])
-def verifyEmail(request, uidb64, token):
-    try:
-        uid = force_str(urlsafe_base64_decode(uidb64))
-        user = User.objects.get(pk=uid)
-    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
-        user = None
-
-    # Check if user exists and token is valid
-    if user is not None and default_token_generator.check_token(user, token):
-        user.is_active = True
-        user.save()
-        return Response({"message": "Account activated successfully! You can now log in."}, status=status.HTTP_200_OK)
-
-    return Response({"error": "Activation link is invalid or expired."}, status=status.HTTP_400_BAD_REQUEST)
-
-
-# 👇 NEW: Request Password Reset View 👇
-@api_view(['POST'])
-def requestPasswordReset(request):
-    email = request.data.get('email')
-    try:
-        user = User.objects.get(email=email)
-
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = default_token_generator.make_token(user)
-
-        # Points to a "Reset Password" page on your React frontend
-        reset_link = f"http://localhost:5173/reset-password/{uid}/{token}"
-
-        send_mail(
-            subject="Reset your DOT8 Password",
-            message=f"Click the link to reset your password:\n{reset_link}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-        )
-    except User.DoesNotExist:
-        # We don't reveal if the email exists or not for security reasons!
-        pass
-
-    return Response({"message": "If an account with that email exists, a reset link has been sent."},
-                    status=status.HTTP_200_OK)
-
-
-# 👇 NEW: Confirm Password Reset View 👇
-@api_view(['POST'])
-def confirmPasswordReset(request, uidb64, token):
-    try:
-        uid = force_str(urlsafe_base64_decode(uidb64))
-        user = User.objects.get(pk=uid)
-    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
-        user = None
-
-    if user is not None and default_token_generator.check_token(user, token):
-        new_password = request.data.get('new_password')
-
-        # Validate length/numbers manually here or use a serializer
-        if len(new_password) < 8 or not any(char.isdigit() for char in new_password):
-            return Response({"error": "Password must be at least 8 characters and contain a number."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        user.set_password(new_password)
-        user.save()
-        return Response({"message": "Password reset successfully. You can now log in."}, status=status.HTTP_200_OK)
-
-    return Response({"error": "Reset link is invalid or expired."}, status=status.HTTP_400_BAD_REQUEST)
-
-
-# ... keep your existing updateMyProfile and updateMySecurity views below ...
-@api_view(['POST'])
-def signInUser(request):
-    serializer = UserSerializerSignIn(data=request.data)
-    if serializer.is_valid():
-        user = authenticate(username=serializer.validated_data['username'], password=serializer.validated_data['password'])
-        if user is not None:
-
-            refresh = RefreshToken.for_user(user)
-
-            answer = {"status": "success",
-                      "username": user.username
-                      }
-
-            response = Response(answer, status=status.HTTP_200_OK)
-            response.set_cookie('access_token', value=str(refresh.access_token), httponly=True)
-            response.set_cookie('refresh_token', value=str(refresh), httponly=True)
-            return response
-        return Response({"detail": "Invalid username or password"}, status=status.HTTP_401_UNAUTHORIZED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def getMyProfile(request):
-    # 'request.user' automatically holds the user who owns the JWT token!
-    user = request.user
-
-    # Find the Profile, or create one if it doesn't exist yet (useful for new signups)
-    profile, created = Profile.objects.get_or_create(user=user)
-
-    # Serialize it and return the Response!
-    serializer = ProfileSerializer(profile, context={'request': request})
-    return Response(serializer.data)
-
-@api_view(['POST'])
-def logOutUser(request):
-    response = Response({"status": "success", "message": "Logged out"}, status=status.HTTP_200_OK)
-    response.delete_cookie('access_token')
-    response.delete_cookie('refresh_token')
-    return response
-
-
-@api_view(['PATCH'])
-@permission_classes([IsAuthenticated])
-def updateMyProfile(request):
-    # Get the existing profile
-    profile, _ = Profile.objects.get_or_create(user=request.user)
-
-    # Pass the instance AND the data. partial=True allows updating just 1 or 2 fields
-    serializer = ProfileSerializer(profile, data=request.data, partial=True,context={'request': request})
-
-    if serializer.is_valid():
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-# 👇 2. Updates first_name, last_name, email, and password 👇
-@api_view(['PATCH'])
-@permission_classes([IsAuthenticated])
-def updateMySecurity(request):
-    user = request.user
-
-    # Uses the UserSerializer we just updated
-    serializer = UserSerializer(user, data=request.data, partial=True)
-
-    if serializer.is_valid():
-        serializer.save()
-        return Response({
-            "status": "success",
-            "message": "Security info updated successfully."
-        }, status=status.HTTP_200_OK)
-
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 </file>
 
 <file path="frontend/package.json">
@@ -6990,43 +7342,267 @@ def updateMySecurity(request):
 }
 </file>
 
+<file path="backend/apps/user/serializers.py">
+from rest_framework import serializers
+
+from .models import Profile
+
+
+# --- INPUT serializers (validate what comes IN from the client) ---
+
+class UserRegistrationSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
+
+class UserLoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+
+
+class UpdateProfileSerializer(serializers.Serializer):
+    # These fields map directly to the Profile model.
+    # first_name / last_name are on the User model, NOT Profile —
+    # they belong in UpdateSecuritySerializer and are handled there.
+    bio = serializers.CharField(required=False, allow_blank=True)
+    website = serializers.URLField(required=False, allow_blank=True)
+    profile_pic = serializers.ImageField(required=False, allow_null=True)
+
+
+class UpdateSecuritySerializer(serializers.Serializer):
+    # first_name and last_name live on the User model, so they are
+    # security/identity fields, not profile fields.
+    first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    username = serializers.CharField(max_length=150, required=False)
+    email = serializers.EmailField(required=False)
+    new_password = serializers.CharField(required=False, write_only=True)
+    confirm_password = serializers.CharField(required=False, write_only=True)
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    new_password = serializers.CharField(write_only=True)
+
+
+# --- OUTPUT serializers (format what goes OUT to the client) ---
+
+class ProfileResponseSerializer(serializers.ModelSerializer):
+    # Pull user fields through the OneToOne relation.
+    username = serializers.ReadOnlyField(source='user.username')
+    first_name = serializers.ReadOnlyField(source='user.first_name')
+    last_name = serializers.ReadOnlyField(source='user.last_name')
+    email = serializers.ReadOnlyField(source='user.email')
+
+    class Meta:
+        model = Profile
+        fields = ['username', 'first_name', 'last_name', 'email', 'bio', 'profile_pic', 'website']
+        read_only_fields = fields
+</file>
+
+<file path="backend/apps/user/views.py">
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.response import Response
+
+from .models import Profile
+from .serializers import (
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
+    ProfileResponseSerializer,
+    UpdateProfileSerializer,
+    UpdateSecuritySerializer,
+    UserLoginSerializer,
+    UserRegistrationSerializer,
+)
+from .services import AuthService, ProfileService, UserService
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])  # Public — user is not logged in yet
+def singUpUser(request):
+    input_serializer = UserRegistrationSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = UserService.register_user(
+            username=input_serializer.validated_data['username'],
+            email=input_serializer.validated_data['email'],
+            password=input_serializer.validated_data['password'],
+        )
+        AuthService.send_activation_email(user)
+        return Response(
+            {"message": "Please check your email to activate your account."},
+            status=status.HTTP_201_CREATED,
+        )
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])  # Public — user is not logged in yet
+def signInUser(request):
+    input_serializer = UserLoginSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        auth_data = AuthService.login(
+            username=input_serializer.validated_data['username'],
+            password=input_serializer.validated_data['password'],
+        )
+
+        response = Response(
+            {"status": "success", "username": auth_data["username"]},
+            status=status.HTTP_200_OK,
+        )
+        response.set_cookie('access_token', value=auth_data["access_token"], httponly=True, samesite='Lax')
+        response.set_cookie('refresh_token', value=auth_data["refresh_token"], httponly=True, samesite='Lax')
+        return response
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+@api_view(['POST'])
+def logOutUser(request):
+    response = Response({"status": "success", "message": "Logged out"}, status=status.HTTP_200_OK)
+    response.delete_cookie('access_token')
+    response.delete_cookie('refresh_token')
+    return response
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])  # Public — accessed via link in email
+def verifyEmail(request, uidb64, token):
+    try:
+        AuthService.verify_email(uidb64, token)
+        return Response({"message": "Account activated successfully!"}, status=status.HTTP_200_OK)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])  # Public — user may be locked out
+def requestPasswordReset(request):
+    input_serializer = PasswordResetRequestSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    AuthService.request_password_reset(input_serializer.validated_data['email'])
+    return Response(
+        {"message": "If an account exists, a reset link has been sent."},
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])  # Public — accessed via link in email
+def confirmPasswordReset(request, uidb64, token):
+    input_serializer = PasswordResetConfirmSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        AuthService.confirm_password_reset(
+            uidb64=uidb64,
+            token=token,
+            new_password=input_serializer.validated_data['new_password'],
+        )
+        return Response(
+            {"message": "Password reset successfully. You can now log in."},
+            status=status.HTTP_200_OK,
+        )
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def getMyProfile(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    output_serializer = ProfileResponseSerializer(profile)
+    return Response(output_serializer.data)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def updateMyProfile(request):
+    input_serializer = UpdateProfileSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        # ** unpacks the validated dict as keyword arguments.
+        # UpdateProfileSerializer only has bio, website, profile_pic —
+        # so this matches the service signature exactly. No TypeError.
+        profile = ProfileService.update_profile(
+            request.user,
+            **input_serializer.validated_data,
+        )
+        output_serializer = ProfileResponseSerializer(profile)
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def updateMySecurity(request):
+    input_serializer = UpdateSecuritySerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    data = input_serializer.validated_data
+
+    try:
+        # Update username, email, first_name, last_name if any were provided.
+        UserService.update_credentials(
+            user=request.user,
+            username=data.get('username'),
+            email=data.get('email'),
+            first_name=data.get('first_name'),
+            last_name=data.get('last_name'),
+        )
+
+        # Only attempt to change the password if the user actually typed one.
+        if data.get('new_password') and data.get('confirm_password'):
+            UserService.update_password(
+                user=request.user,
+                new_password=data['new_password'],
+                confirm_password=data['confirm_password'],
+            )
+
+        return Response(
+            {"message": "Security info updated successfully."},
+            status=status.HTTP_200_OK,
+        )
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+</file>
+
 <file path="backend/config/settings.py">
-"""
-Django settings for config project.
-
-Generated by 'django-admin startproject' using Django 6.0.3.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/6.0/topics/settings/
-
-For the full list of settings and their values, see
-https://docs.djangoproject.com/en/6.0/ref/settings/
-"""
 import os
+from datetime import timedelta
 from pathlib import Path
+
 import environ
 
-
-
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 env = environ.Env()
-# Read the .env file
-environ.Env.read_env(os.path.join(Path(__file__).resolve().parent.parent, '.env'))
+environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env('SECRET_KEY')
 
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env.bool('DEBUG', default=False)
 
-ALLOWED_HOSTS = []
-
-
-# Application definition
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -7036,20 +7612,21 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'apps.user', # this is mine, the first app
     'corsheaders',
+    'apps.user',
     'apps.posts',
-
 ]
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'apps.user.authentication.CustomCookieAuthentication',
-
     ),
+    # Deny by default. Public endpoints explicitly set AllowAny on the view.
+    # Previously this was AllowAny which meant every endpoint was public
+    # unless you remembered to add IsAuthenticated — easy to forget.
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.AllowAny',
-    )
+        'rest_framework.permissions.IsAuthenticated',
+    ),
 }
 
 MIDDLEWARE = [
@@ -7061,7 +7638,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -7083,55 +7659,28 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-
-# Database
-# https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': env('DB_NAME'),
-        'USER': env('DB_USERNAME'),  # Replace with your Mac login name
-        'PASSWORD': env('DB_PASSWORD'),              # Usually blank by default on Mac
+        'USER': env('DB_USERNAME'),
+        'PASSWORD': env('DB_PASSWORD'),
         'HOST': env('DB_HOST'),
         'PORT': env('DB_PORT'),
     }
 }
 
-
-# Password validation
-# https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
-
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-
-# Internationalization
-# https://docs.djangoproject.com/en/6.0/topics/i18n/
-
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
-
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
 
@@ -7141,31 +7690,32 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 CORS_ALLOW_CREDENTIALS = True
-
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
-
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
 ]
 
-from datetime import timedelta
-
 SIMPLE_JWT = {
-    # How long the "Working" token lasts (e.g., for Axios calls)
     'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
-
-    # How long before the user is FORCED to log in again
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
-
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
 }
 
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = 'noreply@dot8.com'
+# The URL your activation/reset emails link to.
+# Override this in your .env when deploying.
+FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5173')
+
+# Use console backend locally so emails print in the terminal.
+# Set EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend in production .env.
+EMAIL_BACKEND = env(
+    'EMAIL_BACKEND',
+    default='django.core.mail.backends.console.EmailBackend',
+)
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='noreply@dot8.com')
 </file>
 
 <file path="frontend/src/App.tsx">
@@ -7181,6 +7731,8 @@ import ActivateAccount from "./pages/ActivateAccount/ActivateAccount";
 import CheckEmail from "./pages/CheckEmail/CheckEmail";
 import EditProfile from "./pages/EditProfile/EditProfile";
 import Security from "./pages/Security/Security";
+import ForgotPassword from "./pages/ForgotPassword/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword/ResetPassword";
 
 function App() {
   return (
@@ -7198,6 +7750,11 @@ function App() {
           <Route path="/check-email" element={<CheckEmail />} />
           <Route path="/edit-profile" element={<EditProfile />} />
           <Route path="/security" element={<Security />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route
+            path="/reset-password/:uid/:token"
+            element={<ResetPassword />}
+          />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
@@ -7225,6 +7782,7 @@ backend/*.py[cod]
 backend/*$py.class
 backend/.venv/
 backend/.env
+backend/media
 backend/*.sqlite3
 **/__pycache__/
 **/*.pyc

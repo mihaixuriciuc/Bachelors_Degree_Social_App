@@ -63,8 +63,10 @@ apps/
     admin.py
     apps.py
     authentication.py
+    helpers.py
     models.py
     serializers.py
+    services.py
     tests.py
     urls.py
     views.py
@@ -78,10 +80,17 @@ config/
   wsgi.py
 media/
   user_1/
+    profile_picture/
+      download.jpeg
     test_picture.jpg
   user_16/
     06e2328a-c53a-441a-9ff4-575283e8adca.jpg
     Screenshot_2026-02-18_at_18.09.41.png
+  user_28/
+    profile_picture/
+      download.jpeg
+      parrot_picture_kmeans_algorithm.jpg
+    download.jpeg
 __init__.py
 manage.py
 requirements.txt
@@ -196,7 +205,7 @@ class PostsConfig(AppConfig):
 
 <file path="apps/posts/helpers.py">
 def user_directory_path(instance, filename):
-    return f'user_{instance.author.id}/{filename}'
+    return f'user_{instance.author.id}/post_content/{filename}'
 </file>
 
 <file path="apps/posts/models.py">
@@ -589,9 +598,15 @@ class CustomCookieAuthentication(JWTAuthentication):
         return response
 </file>
 
+<file path="apps/user/helpers.py">
+def user_directory_path(instance, filename):
+    return f'user_{instance.user.id}/profile_picture/{filename}'
+</file>
+
 <file path="apps/user/models.py">
 from django.db import models #the database methods
 from django.contrib.auth.models import AbstractUser #the security methods
+from apps.user.helpers import user_directory_path
 
 
 # Create your models here.
@@ -606,7 +621,7 @@ class User(AbstractUser):
 
 class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)     #links the user and the profile
-    profile_pic = models.ImageField(upload_to="profile_pic", null=True, blank=True)     #the photo stored locally, null for database and blank for frontend(allows them to be empty)
+    profile_pic = models.ImageField(upload_to=user_directory_path, null=True, blank=True)     #the photo stored locally, null for database and blank for frontend(allows them to be empty)
     bio = models.TextField(null=True, blank=True)               #same here
     website = models.URLField(null=True, blank=True)
 
@@ -618,39 +633,201 @@ class Profile(models.Model):
 <file path="apps/user/serializers.py">
 from rest_framework import serializers
 from .models import User, Profile
-from rest_framework import serializers
 
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        #model and fields are from Meta annotation
-        model = User
-        fields = ['id', 'username', 'email', 'password', 'first_name', 'last_name']
+# 👇 1. INCOMING DATA (Validation Only)
+class UserRegistrationSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    email = serializers.EmailField()
+    password = serializers.CharField()
 
-        extra_kwargs = {'password': {'write_only': True},'id': {'read_only': True}, 'is_staff': {'read_only': True},'is_superuser': {'read_only': True}}
+class UserLoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField()
 
-
-    def create(self, validated_data):
-        return User.objects.create_user(**validated_data)
-
-class UserSerializerSignIn(serializers.Serializer):
-    # We call it 'identifier' so the user can provide either a username OR an email
-    username = serializers.CharField(required=True)
-
-    password = serializers.CharField(
-        style={'input_type': 'password'},
-        write_only=True,
-        required=True
-    )
+class UpdateProfileSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    bio = serializers.CharField(required=False, allow_blank=True)
+    website = serializers.URLField(required=False, allow_blank=True)
+    profile_pic = serializers.ImageField(required=False, allow_null=True)
 
 
-class ProfileSerializer(serializers.ModelSerializer):
-    # We can add a ReadOnlyField to grab the username from the related User model.
-    # 'user.username' traverses the OneToOneField relationship!
+class UpdateSecuritySerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150, required=False)
+    email = serializers.EmailField(required=False)
+    password = serializers.CharField(required=False)
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    new_password = serializers.CharField()
+
+
+# 👇 2. OUTGOING DATA (Formatting Only)
+class ProfileResponseSerializer(serializers.ModelSerializer):
     username = serializers.ReadOnlyField(source='user.username')
+    first_name = serializers.ReadOnlyField(source='user.first_name')
+    last_name = serializers.ReadOnlyField(source='user.last_name')
+    email = serializers.ReadOnlyField(source='user.email')
 
     class Meta:
         model = Profile
-        fields = ['username', 'bio', 'profile_pic', 'website']
+        fields = ['username', 'first_name', 'last_name', 'email', 'bio', 'profile_pic', 'website']
+        read_only_fields = fields
+</file>
+
+<file path="apps/user/services.py">
+from django.contrib.auth import authenticate
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.core.mail import send_mail
+from django.conf import settings
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+
+from .models import User, Profile
+
+
+class ProfileService:
+    """Handles ONLY public-facing profile logic."""
+
+    @staticmethod
+    def create_profile(user: User) -> Profile:
+        profile, _ = Profile.objects.get_or_create(user=user) # tries to get the object, if not then it creates it
+        return profile
+
+    @staticmethod
+    def update_profile(user: User, bio: str = None, website: str = None,profile_pic: str = None) -> Profile:
+        profile = ProfileService.create_profile(user)
+
+        if bio is not None:
+            profile.bio = bio
+        if website is not None:
+            profile.website = website
+
+        if profile_pic is not None:
+            profile.profile_pic = profile_pic
+
+        profile.save()
+        return profile
+
+
+class UserService:
+    """Handles ONLY security, identity, and authentication logic."""
+
+    @staticmethod
+    def register_user(username: str, email: str, password: str) -> User:
+        if User.objects.filter(username=username).exists():
+            raise ValueError("This username is already taken.")
+        if User.objects.filter(email=email).exists():
+            raise ValueError("This email is already registered.")
+        if len(password) < 8 or not any(char.isdigit() for char in password):
+            raise ValueError("Password must be at least 8 characters long.")
+
+        user = User.objects.create_user(username=username, email=email, password=password, is_active=False)
+        return user
+
+    @staticmethod
+    def update_credentials(user: User, username: str = None, email: str = None):
+        """Handles sensitive unique identifiers (Username & Email)."""
+
+        # Check if they are trying to change the username, and if it's available
+        if username and username != user.username:
+            if User.objects.filter(username=username).exists():
+                raise ValueError("This username is already taken.")
+            user.username = username
+
+        # Check if they are trying to change the email, and if it's available
+        if email and email != user.email:
+            if User.objects.filter(email=email).exists():
+                raise ValueError("This email is already registered.")
+            user.email = email
+
+        # If anything changed, save it
+        if username or email:
+            user.save()
+
+    # ... keep your update_password method right below this!
+
+
+class AuthService:
+    FRONTEND_URL = "http://localhost:5173"
+
+    @staticmethod
+    def login(username: str, password: str) -> dict:
+        user = authenticate(username=username, password=password)
+        if not user:
+            raise ValueError("Invalid username or password.")
+
+        refresh = RefreshToken.for_user(user)
+        return {
+            "username": user.username,
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+            "is_active": str(user.is_active)
+        }
+
+    @staticmethod
+    def send_activation_email(user: User):
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        link = f"{AuthService.FRONTEND_URL}/activate/{uid}/{token}"
+
+        send_mail(
+            "Confirm your DOT8 Account",
+            f"Hi {user.username},\nClick here to activate: {link}",
+            settings.DEFAULT_FROM_EMAIL,
+            [user.email],
+        )
+
+    @staticmethod
+    def verify_email(uidb64: str, token: str):
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            raise ValueError("Invalid activation link.")
+
+        if not default_token_generator.check_token(user, token):
+            raise ValueError("Activation link is expired or invalid.")
+
+        user.is_active = True
+        user.save()
+
+    @staticmethod
+    def request_password_reset(email: str):
+        try:
+            user = User.objects.get(email=email)
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            link = f"{AuthService.FRONTEND_URL}/reset-password/{uid}/{token}"
+
+            send_mail(
+                "Reset your DOT8 Password",
+                f"Click the link to reset your password:\n{link}",
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email],
+            )
+        except User.DoesNotExist:
+            pass # Silent fail for security
+
+    @staticmethod
+    def confirm_password_reset(uidb64: str, token: str, new_password: str):
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            raise ValueError("Invalid reset link.")
+
+        if not default_token_generator.check_token(user, token):
+            raise ValueError("Reset link is expired or invalid.")
+
+        if len(new_password) < 8 or not any(char.isdigit() for char in new_password):
+            raise ValueError("Password must be at least 8 characters long and contain a number.")
+
+        user.set_password(new_password)
+        user.save()
 </file>
 
 <file path="apps/user/tests.py">
@@ -671,6 +848,12 @@ urlpatterns = [
     path('signIn',views.signInUser, name='signIn'),
     path('signIn/refresh',views.signInUser,name='signIn'),
     path('logout', views.logOutUser, name='logout'),
+    path('profile/update/', views.updateMyProfile, name='update-profile'),
+    path('security/update/', views.updateMySecurity, name='update-security'),
+    path('activate/<str:uidb64>/<str:token>/', views.verifyEmail, name='activate'),
+    path('password-reset/request/', views.requestPasswordReset, name='password-reset-request'),
+    path('password-reset/confirm/<str:uidb64>/<str:token>/', views.confirmPasswordReset, name='password-reset-confirm'),
+
 
 
 
@@ -678,78 +861,62 @@ urlpatterns = [
 </file>
 
 <file path="apps/user/views.py">
-from django.contrib.auth import authenticate
-from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_simplejwt.tokens import RefreshToken
-from .serializers import ProfileSerializer
-from .models import User, Profile
-from .serializers import UserSerializerSignIn, UserSerializer
 
+from .serializers import (
+    UserRegistrationSerializer,
+    UserLoginSerializer,
+    UpdateProfileSerializer,
+    UpdateSecuritySerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer,
+    ProfileResponseSerializer
+)
+from .services import UserService, AuthService, ProfileService
+from .models import Profile
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def getAllUsers(request):
-    users = User.objects.all()
-    serializer = UserSerializer(users, many=True)
-    return Response(serializer.data)
 
 @api_view(['POST'])
 def singUpUser(request):
-    serializer = UserSerializer(data=request.data)
-    if serializer.is_valid():
-        user = serializer.save()
-        refresh = RefreshToken.for_user(user)
+    input_serializer = UserRegistrationSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        answer = {"status": "success",
-                  "username": user.username
-        }
-
-        response = Response(answer, status=status.HTTP_201_CREATED)
-        response.set_cookie('access_token', value=str(refresh.access_token), httponly=True)
-        response.set_cookie('refresh_token', value=str(refresh), httponly=True)
-        return response
-
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        user = UserService.register_user(
+            username=input_serializer.validated_data['username'],
+            email=input_serializer.validated_data['email'],
+            password=input_serializer.validated_data['password']
+        )
+        AuthService.send_activation_email(user)
+        return Response({"message": "Please check your email to activate your account."},
+                        status=status.HTTP_201_CREATED)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST'])
 def signInUser(request):
-    serializer = UserSerializerSignIn(data=request.data)
-    if serializer.is_valid():
-        user = authenticate(username=serializer.validated_data['username'], password=serializer.validated_data['password'])
-        if user is not None:
+    input_serializer = UserLoginSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            refresh = RefreshToken.for_user(user)
+    try:
+        auth_data = AuthService.login(
+            username=input_serializer.validated_data['username'],
+            password=input_serializer.validated_data['password']
+        )
 
-            answer = {"status": "success",
-                      "username": user.username
-                      }
+        response = Response({"status": "success", "username": auth_data["username"]}, status=status.HTTP_200_OK)
+        response.set_cookie('access_token', value=auth_data["access_token"], httponly=True)
+        response.set_cookie('refresh_token', value=auth_data["refresh_token"], httponly=True)
+        return response
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
 
-            response = Response(answer, status=status.HTTP_200_OK)
-            response.set_cookie('access_token', value=str(refresh.access_token), httponly=True)
-            response.set_cookie('refresh_token', value=str(refresh), httponly=True)
-            return response
-        return Response({"detail": "Invalid username or password"}, status=status.HTTP_401_UNAUTHORIZED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def getMyProfile(request):
-    # 'request.user' automatically holds the user who owns the JWT token!
-    user = request.user
-
-    # Find the Profile, or create one if it doesn't exist yet (useful for new signups)
-    profile, created = Profile.objects.get_or_create(user=user)
-
-    # Serialize it and return the Response!
-    serializer = ProfileSerializer(profile)
-    return Response(serializer.data)
 
 @api_view(['POST'])
 def logOutUser(request):
@@ -758,16 +925,78 @@ def logOutUser(request):
     response.delete_cookie('refresh_token')
     return response
 
+
+@api_view(['POST'])
+def verifyEmail(request, uidb64, token):
+    try:
+        AuthService.verify_email(uidb64, token)
+        return Response({"message": "Account activated successfully!"}, status=status.HTTP_200_OK)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+def requestPasswordReset(request):
+    input_serializer = PasswordResetRequestSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    AuthService.request_password_reset(input_serializer.validated_data['email'])
+    return Response({"message": "If an account exists, a reset link has been sent."}, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def confirmPasswordReset(request, uidb64, token):
+    input_serializer = PasswordResetConfirmSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        AuthService.confirm_password_reset(
+            uidb64=uidb64,
+            token=token,
+            new_password=input_serializer.validated_data['new_password']
+        )
+        return Response({"message": "Password reset successfully. You can now log in."}, status=status.HTTP_200_OK)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def getMyProfile(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    output_serializer = ProfileResponseSerializer(profile)
+    return Response(output_serializer.data)
+
+
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def updateMyProfile(request):
-    serializer = ProfileSerializer(data=request.data)
-    if serializer.is_valid():
-        profile = serializer.save()
-        refresh = RefreshToken.for_user(profile)
-        answer = {"status": "success",
-                  "username": profile.user.username
-                  }
+    input_serializer = UpdateProfileSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        profile = ProfileService.update_profile(request.user, input_serializer.validated_data)
+        output_serializer = ProfileResponseSerializer(profile)
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def updateMySecurity(request):
+    input_serializer = UpdateSecuritySerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        UserService.update_credentials(request.user, input_serializer.validated_data)
+        return Response({"message": "Security info updated successfully."}, status=status.HTTP_200_OK)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 </file>
 
 <file path="apps/__init__.py">
@@ -974,6 +1203,9 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
 }
+
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'noreply@dot8.com'
 </file>
 
 <file path="config/urls.py">
