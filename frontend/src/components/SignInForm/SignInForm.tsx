@@ -19,7 +19,7 @@ function SignInForm() {
     const data = Object.fromEntries(formData.entries());
 
     try {
-      const response = await api.post("/signIn", data);
+      const response = await api.post("/signIn/", data);
       if (response.status === 200) {
         navigate("/feed"); // Or wherever you want them to go after signing in
       }

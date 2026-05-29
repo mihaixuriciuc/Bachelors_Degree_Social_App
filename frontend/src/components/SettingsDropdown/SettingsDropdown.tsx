@@ -1,14 +1,15 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import api from "../../api/api";
+import { useAuth } from "../../hooks/useAuth";
 import "./SettingsDropdown.scss";
 
 function SettingsDropdown() {
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown if the user clicks anywhere outside of it
+  // Close the dropdown when the user clicks anywhere outside of it.
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -23,12 +24,8 @@ function SettingsDropdown() {
   }, []);
 
   const handleLogout = async () => {
-    try {
-      await api.post("/logout"); // Tells Django to delete the cookies
-      navigate("/"); // Redirects to Home
-    } catch (err) {
-      console.error("Logout failed", err);
-    }
+    await logout();
+    navigate("/");
   };
 
   return (

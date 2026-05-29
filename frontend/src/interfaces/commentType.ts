@@ -1,6 +1,6 @@
 import { Post } from "../interfaces/postType";
 
-export interface Comment {
+export interface PostComment {
   id: number;
   author: string;
   content: string;

@@ -1,27 +1,12 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import api from "../../api/api";
 import SecurityForm from "../../components/SecurityForm/SecurityForm";
+import { useFetch } from "../../hooks/useFetch";
+import { profileService } from "../../services/profileService";
 // Reuse the layout styles from EditProfile
 import "../EditProfile/EditProfile.scss";
 
 function Security() {
-  const [initialData, setInitialData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const response = await api.get("/account/profile/");
-        setInitialData(response.data);
-      } catch (err) {
-        console.error("Failed to load security data", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchProfile();
-  }, []);
+  const { data: profile, loading } = useFetch(() => profileService.getMine());
 
   return (
     <div className="edit-profile-page">
@@ -41,7 +26,7 @@ function Security() {
               <p>Loading security data...</p>
             </div>
           ) : (
-            <SecurityForm initialData={initialData || {}} />
+            <SecurityForm initialData={profile || {}} />
           )}
         </div>
       </div>
