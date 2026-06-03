@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../../api/api";
+import { postService } from "../../services/postService";
 import "./CreatePost.scss";
 
 function CreatePost() {
@@ -16,7 +16,6 @@ function CreatePost() {
     setLoading(true);
     setError("");
 
-    // Use FormData to handle the image file upload
     const formData = new FormData();
     formData.append("title", title);
     formData.append("content", content);
@@ -25,12 +24,7 @@ function CreatePost() {
     }
 
     try {
-      await api.post("/account/posts/", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-      // Redirect to feed after successful creation
+      await postService.create(formData);
       navigate("/feed");
     } catch (err) {
       console.error("Error creating post:", err);

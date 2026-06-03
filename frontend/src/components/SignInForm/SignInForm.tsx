@@ -1,36 +1,37 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import api from "../../api/api";
+import { useNavigate, Link } from "react-router-dom";
+import { AxiosError } from "axios";
+import { authService } from "../../services/authService";
+import { useAuth } from "../../hooks/useAuth";
 import "./SignInForm.scss";
-import { Link } from "react-router-dom";
 
 function SignInForm() {
   const navigate = useNavigate();
-  // State to hold Django's error messages
-  const [errors, setErrors] = useState<Record<string, string[]>>({});
+  const { refreshUser } = useAuth();
+  const [errors, setErrors] = useState<Record<string, string | string[]>>({});
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setErrors({}); // Clear previous errors
+    setErrors({});
     setLoading(true);
 
     const formData = new FormData(e.currentTarget);
-    const data = Object.fromEntries(formData.entries());
+    const data = {
+      username: formData.get("username") as string,
+      password: formData.get("password") as string,
+    };
 
     try {
-      const response = await api.post("/signIn/", data);
-      if (response.status === 200) {
-        navigate("/feed"); // Or wherever you want them to go after signing in
-      }
-    } catch (err: any) {
-      console.error("Sign in failed:", err);
-      // If Django sends back specific field errors (e.g., {"username": ["..."]})
-      if (err.response && err.response.data) {
+      await authService.signIn(data);
+      // After login, hydrate the AuthContext so ProtectedRoute lets us in.
+      await refreshUser();
+      navigate("/feed");
+    } catch (err) {
+      if (err instanceof AxiosError && err.response?.data) {
         setErrors(err.response.data);
       } else {
-        // Fallback for network issues or unexpected errors
-        setErrors({ detail: ["Something went wrong. Please try again."] });
+        setErrors({ error: "Something went wrong. Please try again." });
       }
     } finally {
       setLoading(false);
@@ -39,8 +40,8 @@ function SignInForm() {
 
   return (
     <form onSubmit={handleSubmit} className="signin-form">
-      {/* Display generic errors (like "Invalid username or password") */}
-      {errors.detail && <p className="global-error">{errors.detail}</p>}
+      {/* The backend sends generic errors under the "error" key (e.g. "Invalid username or password.") */}
+      {errors.error && <p className="global-error">{errors.error}</p>}
 
       <div className="input-group">
         <input
@@ -51,7 +52,11 @@ function SignInForm() {
           className={`form-input ${errors.username ? "input-error" : ""}`}
         />
         {errors.username && (
-          <span className="error-text">{errors.username[0]}</span>
+          <span className="error-text">
+            {Array.isArray(errors.username)
+              ? errors.username[0]
+              : errors.username}
+          </span>
         )}
       </div>
 
@@ -64,7 +69,11 @@ function SignInForm() {
           className={`form-input ${errors.password ? "input-error" : ""}`}
         />
         {errors.password && (
-          <span className="error-text">{errors.password[0]}</span>
+          <span className="error-text">
+            {Array.isArray(errors.password)
+              ? errors.password[0]
+              : errors.password}
+          </span>
         )}
       </div>
 
@@ -80,16 +89,8 @@ function SignInForm() {
           {loading ? "Signing In..." : "Sign In"}
         </button>
 
-        <div style={{ textAlign: "center" }}>
-          <Link
-            to="/forgot-password"
-            style={{
-              color: "#9414e3",
-              textDecoration: "none",
-              fontSize: "0.9rem",
-              fontWeight: "600",
-            }}
-          >
+        <div className="forgot-password-link">
+          <Link to="/forgot-password" className="link-primary">
             Forgot Password?
           </Link>
         </div>

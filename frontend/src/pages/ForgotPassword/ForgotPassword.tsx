@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import api from "../../api/api";
-import "../SignIn/SignIn.scss"; // Reusing your auth container styles!
+import { authService } from "../../services/authService";
+import "../SignIn/SignIn.scss";
+import "./ForgotPassword.scss";
 
 function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -16,10 +17,10 @@ function ForgotPassword() {
     setMessage("");
 
     try {
-      const response = await api.post("/password-reset/request/", { email });
+      const response = await authService.requestPasswordReset(email);
       setStatus("success");
       setMessage(response.data.message);
-    } catch (err: any) {
+    } catch {
       setStatus("error");
       setMessage("Something went wrong. Please try again.");
     }
@@ -32,22 +33,14 @@ function ForgotPassword() {
           <span className="arrow">&larr;</span> Back to Sign In
         </Link>
 
-        <h1 style={{ marginBottom: "10px" }}>Forgot Password?</h1>
-        <p
-          style={{
-            textAlign: "center",
-            color: "#6c757d",
-            marginBottom: "30px",
-          }}
-        >
+        <h1 className="page-title">Forgot Password?</h1>
+        <p className="page-subtitle">
           Enter your email address and we'll send you a link to reset your
           password.
         </p>
 
         {status === "success" ? (
-          <div
-            style={{ textAlign: "center", color: "#28a745", fontWeight: "600" }}
-          >
+          <div className="success-message">
             <p>{message}</p>
           </div>
         ) : (
@@ -64,12 +57,11 @@ function ForgotPassword() {
               />
             </div>
 
-            <div className="form-actions" style={{ marginTop: "15px" }}>
+            <div className="form-actions-full">
               <button
                 type="submit"
                 className="btn-submit"
                 disabled={status === "loading"}
-                style={{ width: "100%" }}
               >
                 {status === "loading" ? "Sending..." : "Send Reset Link"}
               </button>
