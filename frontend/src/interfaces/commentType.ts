@@ -1,6 +1,8 @@
-import { Post } from "../interfaces/postType";
+import { Post } from "./postType";
 
-export interface Comment {
+// Renamed from `Comment` to `PostComment` so it doesn't shadow the
+// built-in DOM `Comment` type (representing HTML comments like <!-- -->).
+export interface PostComment {
   id: number;
   author: string;
   content: string;
@@ -15,7 +17,6 @@ export interface CommentsHandler {
   handleCommentSubmit: (e: React.FormEvent) => void;
 }
 
-export interface CommentBoxProps {
-  comments: Comment[];
-  loading: boolean;
-}
+// CommentBoxProps was removed — it referenced the global `Comment` type
+// (HTML comments) by accident, which was unrelated to post comments.
+// CommentBox now declares its own props inline because they're trivial.

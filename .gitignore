@@ -16,6 +16,7 @@ backend/*.py[cod]
 backend/*$py.class
 backend/.venv/
 backend/.env
+backend/media
 backend/*.sqlite3
 **/__pycache__/
 **/*.pyc

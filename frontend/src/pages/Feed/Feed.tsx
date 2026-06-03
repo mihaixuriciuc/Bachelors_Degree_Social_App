@@ -1,28 +1,33 @@
 import { useEffect, useState } from "react";
-import api from "../../api/api";
+import { Link, useNavigate } from "react-router-dom";
 import PostCard from "../../components/PostCard/PostCard";
+import { Post } from "../../interfaces/postType";
+import { postService } from "../../services/postService";
+import { useAuth } from "../../hooks/useAuth";
 import "./Feed.scss";
-import { Link } from "react-router-dom"; // ADD THIS IMPORT
-import { useNavigate } from "react-router-dom";
 
 function Feed() {
-  const [posts, setPosts] = useState([]);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const { logout } = useAuth();
 
   useEffect(() => {
-    // Replace with your actual backend endpoint from urls.py
-    api
-      .get("/account/posts/")
+    postService
+      .listFeed()
       .then((res) => {
         setPosts(res.data);
-        setLoading(false);
       })
       .catch((err) => {
         console.error("Error fetching posts:", err);
-        setLoading(false);
-      });
+      })
+      .finally(() => setLoading(false));
   }, []);
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/");
+  };
 
   if (loading) return <div className="feed-status">Loading feed...</div>;
 
@@ -30,23 +35,11 @@ function Feed() {
     <div className="feed-page">
       <nav className="feed-nav">
         <h1 className="logo-small">DOT8</h1>
-
-        {/* REPLACE existing btn-logout WITH this nav-actions div */}
         <div className="nav-actions">
           <Link to="/profile" className="btn-profile">
             Profile
           </Link>
-          <button
-            className="btn-logout"
-            onClick={async () => {
-              try {
-                await api.post("/logout"); // Tells Django to delete the cookies
-                navigate("/"); // Redirects to Home
-              } catch (err) {
-                console.error("Logout failed", err);
-              }
-            }}
-          >
+          <button className="btn-logout" onClick={handleLogout}>
             Log out
           </button>
         </div>
@@ -54,7 +47,7 @@ function Feed() {
 
       <main className="feed-content">
         {posts.length > 0 ? (
-          posts.map((post: any) => <PostCard key={post.id} post={post} />)
+          posts.map((post) => <PostCard key={post.id} post={post} />)
         ) : (
           <p className="no-posts">
             No posts yet. Be the first to share something!

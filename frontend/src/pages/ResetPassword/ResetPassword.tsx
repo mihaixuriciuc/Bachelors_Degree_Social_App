@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import api from "../../api/api";
+import { AxiosError } from "axios";
+import { authService } from "../../services/authService";
 import "../SignIn/SignIn.scss";
+import "./ResetPassword.scss";
 
 function ResetPassword() {
   const { uid, token } = useParams<{ uid: string; token: string }>();
@@ -22,46 +24,40 @@ function ResetPassword() {
       return;
     }
 
+    if (!uid || !token) {
+      setStatus("error");
+      setMessage("Invalid reset link.");
+      return;
+    }
+
     setStatus("loading");
     try {
-      // Send the new_password to the backend endpoint using the URL parameters
-      const response = await api.post(
-        `/password-reset/confirm/${uid}/${token}/`,
-        {
-          new_password: newPassword,
-        },
+      const response = await authService.confirmPasswordReset(
+        uid,
+        token,
+        newPassword,
       );
       setStatus("success");
       setMessage(response.data.message);
-    } catch (err: any) {
+    } catch (err) {
       setStatus("error");
-      setMessage(
-        err.response?.data?.error || "Link is invalid or has expired.",
-      );
+      const errorMsg =
+        err instanceof AxiosError && err.response?.data?.error
+          ? err.response.data.error
+          : "Link is invalid or has expired.";
+      setMessage(errorMsg);
     }
   };
 
   return (
     <div className="signin-page">
       <div className="auth-container">
-        <h1 style={{ marginBottom: "20px" }}>Set New Password</h1>
+        <h1 className="page-title">Set New Password</h1>
 
         {status === "success" ? (
-          <div style={{ textAlign: "center" }}>
-            <p
-              style={{
-                color: "#28a745",
-                fontWeight: "600",
-                marginBottom: "20px",
-              }}
-            >
-              {message}
-            </p>
-            <Link
-              to="/signin"
-              className="btn-submit"
-              style={{ textDecoration: "none", display: "inline-block" }}
-            >
+          <div className="success-container">
+            <p className="success-message">{message}</p>
+            <Link to="/signin" className="btn-submit">
               Go to Sign In
             </Link>
           </div>
@@ -79,7 +75,7 @@ function ResetPassword() {
               />
             </div>
 
-            <div className="input-group" style={{ marginTop: "15px" }}>
+            <div className="input-group input-group-spaced">
               <input
                 type="password"
                 placeholder="Confirm New Password"
@@ -89,12 +85,11 @@ function ResetPassword() {
               />
             </div>
 
-            <div className="form-actions" style={{ marginTop: "20px" }}>
+            <div className="form-actions-full">
               <button
                 type="submit"
                 className="btn-submit"
                 disabled={status === "loading"}
-                style={{ width: "100%" }}
               >
                 {status === "loading" ? "Saving..." : "Reset Password"}
               </button>

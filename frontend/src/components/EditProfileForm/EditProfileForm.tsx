@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../../api/api";
+import { AxiosError } from "axios";
+import { profileService } from "../../services/profileService";
 import "./EditProfileForm.scss";
 
 interface InitialProfileData {
-  bio?: string;
-  website?: string;
+  bio?: string | null;
+  website?: string | null;
   profile_pic?: string | null;
 }
 
@@ -17,7 +18,6 @@ function EditProfileForm({ initialData }: { initialData: InitialProfileData }) {
   const [previewUrl, setPreviewUrl] = useState<string>(
     initialData.profile_pic || "https://via.placeholder.com/150",
   );
-
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
 
@@ -40,12 +40,14 @@ function EditProfileForm({ initialData }: { initialData: InitialProfileData }) {
     if (imageFile) formData.append("profile_pic", imageFile);
 
     try {
-      await api.patch("/profile/update/", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      await profileService.updateMine(formData);
       navigate("/profile");
-    } catch (err: any) {
-      if (err.response?.data) setErrors(err.response.data);
+    } catch (err) {
+      // Type-check the error instead of using `any`.
+      // AxiosError is the proper type for HTTP errors from axios.
+      if (err instanceof AxiosError && err.response?.data) {
+        setErrors(err.response.data);
+      }
     } finally {
       setLoading(false);
     }

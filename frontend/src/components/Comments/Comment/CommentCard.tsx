@@ -1,9 +1,9 @@
-import { commentService } from "../../../services/commentService";
-import { Comment } from "../../../interfaces/commentType";
+import { PostComment } from "../../../interfaces/commentType";
 import "./Comment.scss";
 
-function CommentCard({ comment }: { comment: Comment }) {
+function CommentCard({ comment }: { comment: PostComment }) {
   const date = new Date(comment.created_at).toLocaleDateString();
+
   return (
     <div className="comment-object">
       <div className="comment-header">

@@ -1,166 +1,64 @@
-from django.contrib.auth import authenticate
-from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
-from rest_framework_simplejwt.tokens import RefreshToken
-from .serializers import ProfileSerializer
-from .models import User, Profile
-from .serializers import UserSerializerSignIn, UserSerializer
 
+from .models import Profile
+from .serializers import (
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
+    ProfileResponseSerializer,
+    UpdateProfileSerializer,
+    UpdateSecuritySerializer,
+    UserLoginSerializer,
+    UserRegistrationSerializer,
+)
+from .services import AuthService, ProfileService, UserService
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def getAllUsers(request):
-    users = User.objects.all()
-    serializer = UserSerializer(users, many=True)
-    return Response(serializer.data)
-
-
-from django.core.mail import send_mail
-from django.contrib.auth.tokens import default_token_generator
-from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
-from django.utils.encoding import force_bytes, force_str
-from django.conf import settings
-
-
-# ... keep your existing imports ...
 
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def singUpUser(request):
-    serializer = UserSerializer(data=request.data)
-    if serializer.is_valid():
-        # 1. Save the user, but don't activate them yet
-        user = serializer.save(is_active=False)
+    input_serializer = UserRegistrationSerializer(data=request.data)
+    input_serializer.is_valid(raise_exception=True)
 
-        # 2. Generate a secure token and encode the user's ID
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = default_token_generator.make_token(user)
-
-        # 3. Create the activation link (This points to your React frontend!)
-        activation_link = f"http://localhost:5173/activate/{uid}/{token}"
-
-        # 4. Send the email
-        send_mail(
-            subject="Confirm your DOT8 Account",
-            message=f"Hi {user.username},\n\nPlease click the link below to activate your account:\n{activation_link}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
+    try:
+        user = UserService.register_user(
+            username=input_serializer.validated_data['username'],
+            email=input_serializer.validated_data['email'],
+            password=input_serializer.validated_data['password'],
         )
-
-        return Response({
-            "status": "success",
-            "message": "Please check your email to activate your account."
-        }, status=status.HTTP_201_CREATED)
-
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-# 👇 NEW: Verify Email View 👇
-@api_view(['POST'])
-def verifyEmail(request, uidb64, token):
-    try:
-        uid = force_str(urlsafe_base64_decode(uidb64))
-        user = User.objects.get(pk=uid)
-    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
-        user = None
-
-    # Check if user exists and token is valid
-    if user is not None and default_token_generator.check_token(user, token):
-        user.is_active = True
-        user.save()
-        return Response({"message": "Account activated successfully! You can now log in."}, status=status.HTTP_200_OK)
-
-    return Response({"error": "Activation link is invalid or expired."}, status=status.HTTP_400_BAD_REQUEST)
-
-
-# 👇 NEW: Request Password Reset View 👇
-@api_view(['POST'])
-def requestPasswordReset(request):
-    email = request.data.get('email')
-    try:
-        user = User.objects.get(email=email)
-
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = default_token_generator.make_token(user)
-
-        # Points to a "Reset Password" page on your React frontend
-        reset_link = f"http://localhost:5173/reset-password/{uid}/{token}"
-
-        send_mail(
-            subject="Reset your DOT8 Password",
-            message=f"Click the link to reset your password:\n{reset_link}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
+        AuthService.send_activation_email(user)
+        return Response(
+            {"message": "Please check your email to activate your account."},
+            status=status.HTTP_201_CREATED,
         )
-    except User.DoesNotExist:
-        # We don't reveal if the email exists or not for security reasons!
-        pass
-
-    return Response({"message": "If an account with that email exists, a reset link has been sent."},
-                    status=status.HTTP_200_OK)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-# 👇 NEW: Confirm Password Reset View 👇
 @api_view(['POST'])
-def confirmPasswordReset(request, uidb64, token):
-    try:
-        uid = force_str(urlsafe_base64_decode(uidb64))
-        user = User.objects.get(pk=uid)
-    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
-        user = None
-
-    if user is not None and default_token_generator.check_token(user, token):
-        new_password = request.data.get('new_password')
-
-        # Validate length/numbers manually here or use a serializer
-        if len(new_password) < 8 or not any(char.isdigit() for char in new_password):
-            return Response({"error": "Password must be at least 8 characters and contain a number."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        user.set_password(new_password)
-        user.save()
-        return Response({"message": "Password reset successfully. You can now log in."}, status=status.HTTP_200_OK)
-
-    return Response({"error": "Reset link is invalid or expired."}, status=status.HTTP_400_BAD_REQUEST)
-
-
-# ... keep your existing updateMyProfile and updateMySecurity views below ...
-@api_view(['POST'])
+@permission_classes([AllowAny])
 def signInUser(request):
-    serializer = UserSerializerSignIn(data=request.data)
-    if serializer.is_valid():
-        user = authenticate(username=serializer.validated_data['username'], password=serializer.validated_data['password'])
-        if user is not None:
+    input_serializer = UserLoginSerializer(data=request.data)
+    input_serializer.is_valid(raise_exception=True)
 
-            refresh = RefreshToken.for_user(user)
+    try:
+        auth_data = AuthService.login(
+            username=input_serializer.validated_data['username'],
+            password=input_serializer.validated_data['password'],
+        )
 
-            answer = {"status": "success",
-                      "username": user.username
-                      }
+        response = Response(
+            {"status": "success", "username": auth_data["username"]},
+            status=status.HTTP_200_OK,
+        )
+        response.set_cookie('access_token', value=auth_data["access_token"], httponly=True, samesite='Lax')
+        response.set_cookie('refresh_token', value=auth_data["refresh_token"], httponly=True, samesite='Lax')
+        return response
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
 
-            response = Response(answer, status=status.HTTP_200_OK)
-            response.set_cookie('access_token', value=str(refresh.access_token), httponly=True)
-            response.set_cookie('refresh_token', value=str(refresh), httponly=True)
-            return response
-        return Response({"detail": "Invalid username or password"}, status=status.HTTP_401_UNAUTHORIZED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def getMyProfile(request):
-    # 'request.user' automatically holds the user who owns the JWT token!
-    user = request.user
-
-    # Find the Profile, or create one if it doesn't exist yet (useful for new signups)
-    profile, created = Profile.objects.get_or_create(user=user)
-
-    # Serialize it and return the Response!
-    serializer = ProfileSerializer(profile, context={'request': request})
-    return Response(serializer.data)
 
 @api_view(['POST'])
 def logOutUser(request):
@@ -170,36 +68,104 @@ def logOutUser(request):
     return response
 
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def verifyEmail(request, uidb64, token):
+    try:
+        AuthService.verify_email(uidb64, token)
+        return Response({"message": "Account activated successfully!"}, status=status.HTTP_200_OK)
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def requestPasswordReset(request):
+    input_serializer = PasswordResetRequestSerializer(data=request.data)
+    input_serializer.is_valid(raise_exception=True)
+
+    AuthService.request_password_reset(input_serializer.validated_data['email'])
+    return Response(
+        {"message": "If an account exists, a reset link has been sent."},
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def confirmPasswordReset(request, uidb64, token):
+    input_serializer = PasswordResetConfirmSerializer(data=request.data)
+    input_serializer.is_valid(raise_exception=True)
+
+    try:
+        AuthService.confirm_password_reset(
+            uidb64=uidb64,
+            token=token,
+            new_password=input_serializer.validated_data['new_password'],
+        )
+        return Response(
+            {"message": "Password reset successfully. You can now log in."},
+            status=status.HTTP_200_OK,
+        )
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def getMyProfile(request):
+    # With the post_save signal, Profile is auto-created for new users.
+    # get_or_create is still used as a safety net for users created
+    # before the signal was added.
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    output_serializer = ProfileResponseSerializer(profile)
+    return Response(output_serializer.data)
+
+
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def updateMyProfile(request):
-    # Get the existing profile
-    profile, _ = Profile.objects.get_or_create(user=request.user)
+    input_serializer = UpdateProfileSerializer(data=request.data)
+    input_serializer.is_valid(raise_exception=True)
 
-    # Pass the instance AND the data. partial=True allows updating just 1 or 2 fields
-    serializer = ProfileSerializer(profile, data=request.data, partial=True,context={'request': request})
+    try:
+        profile = ProfileService.update_profile(
+            request.user,
+            **input_serializer.validated_data,
+        )
+        output_serializer = ProfileResponseSerializer(profile)
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    if serializer.is_valid():
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_200_OK)
 
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-# 👇 2. Updates first_name, last_name, email, and password 👇
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def updateMySecurity(request):
-    user = request.user
+    input_serializer = UpdateSecuritySerializer(data=request.data)
+    input_serializer.is_valid(raise_exception=True)
 
-    # Uses the UserSerializer we just updated
-    serializer = UserSerializer(user, data=request.data, partial=True)
+    data = input_serializer.validated_data
 
-    if serializer.is_valid():
-        serializer.save()
-        return Response({
-            "status": "success",
-            "message": "Security info updated successfully."
-        }, status=status.HTTP_200_OK)
+    try:
+        UserService.update_credentials(
+            user=request.user,
+            username=data.get('username'),
+            email=data.get('email'),
+            first_name=data.get('first_name'),
+            last_name=data.get('last_name'),
+        )
 
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if data.get('new_password') and data.get('confirm_password'):
+            UserService.update_password(
+                user=request.user,
+                new_password=data['new_password'],
+                confirm_password=data['confirm_password'],
+            )
+
+        return Response(
+            {"message": "Security info updated successfully."},
+            status=status.HTTP_200_OK,
+        )
+    except ValueError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)

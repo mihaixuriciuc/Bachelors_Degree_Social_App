@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../../api/api";
+import { AxiosError } from "axios";
+import { authService } from "../../services/authService";
 import "./SignUpForm.scss";
 
 function SignUpForm() {
   const navigate = useNavigate();
-  const [errors, setErrors] = useState<Record<string, string[]>>({});
+  const [errors, setErrors] = useState<Record<string, string | string[]>>({});
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -14,9 +15,16 @@ function SignUpForm() {
     setLoading(true);
 
     const formData = new FormData(e.currentTarget);
-    const data = Object.fromEntries(formData.entries());
+    const data = {
+      username: formData.get("username") as string,
+      email: formData.get("email") as string,
+      password: formData.get("password") as string,
+      confirm_password: formData.get("confirm_password") as string,
+      first_name: formData.get("first_name") as string,
+      last_name: formData.get("last_name") as string,
+    };
 
-    // We can let the backend handle the mismatch error, or catch it right here to save an API call
+    // Catch the password mismatch on the frontend to save an API call.
     if (data.password !== data.confirm_password) {
       setErrors({ confirm_password: ["Passwords do not match."] });
       setLoading(false);
@@ -24,15 +32,13 @@ function SignUpForm() {
     }
 
     try {
-      const response = await api.post("/signUp", data);
-      if (response.status === 200 || response.status === 201) {
-        navigate("/check-email");
-      }
-    } catch (err: any) {
-      if (err.response && err.response.data) {
+      await authService.signUp(data);
+      navigate("/check-email");
+    } catch (err) {
+      if (err instanceof AxiosError && err.response?.data) {
         setErrors(err.response.data);
       } else {
-        setErrors({ general: ["Something went wrong. Please try again."] });
+        setErrors({ error: "Something went wrong. Please try again." });
       }
     } finally {
       setLoading(false);
@@ -41,9 +47,7 @@ function SignUpForm() {
 
   return (
     <form onSubmit={handleSubmit} className="signup-form">
-      {errors.general && <p className="global-error">{errors.general[0]}</p>}
-
-      {/* ... keeping your existing username and email inputs ... */}
+      {errors.error && <p className="global-error">{errors.error}</p>}
 
       <div className="input-group">
         <input
@@ -54,7 +58,11 @@ function SignUpForm() {
           required
         />
         {errors.username && (
-          <span className="error-text">{errors.username[0]}</span>
+          <span className="error-text">
+            {Array.isArray(errors.username)
+              ? errors.username[0]
+              : errors.username}
+          </span>
         )}
       </div>
 
@@ -66,7 +74,11 @@ function SignUpForm() {
           className={`form-input ${errors.email ? "input-error" : ""}`}
           required
         />
-        {errors.email && <span className="error-text">{errors.email[0]}</span>}
+        {errors.email && (
+          <span className="error-text">
+            {Array.isArray(errors.email) ? errors.email[0] : errors.email}
+          </span>
+        )}
       </div>
 
       <div className="input-group">
@@ -78,11 +90,14 @@ function SignUpForm() {
           required
         />
         {errors.password && (
-          <span className="error-text">{errors.password[0]}</span>
+          <span className="error-text">
+            {Array.isArray(errors.password)
+              ? errors.password[0]
+              : errors.password}
+          </span>
         )}
       </div>
 
-      {/* 👇 NEW CONFIRM PASSWORD FIELD 👇 */}
       <div className="input-group">
         <input
           type="password"
@@ -92,7 +107,11 @@ function SignUpForm() {
           required
         />
         {errors.confirm_password && (
-          <span className="error-text">{errors.confirm_password[0]}</span>
+          <span className="error-text">
+            {Array.isArray(errors.confirm_password)
+              ? errors.confirm_password[0]
+              : errors.confirm_password}
+          </span>
         )}
       </div>
 
@@ -106,7 +125,11 @@ function SignUpForm() {
             required
           />
           {errors.first_name && (
-            <span className="error-text">{errors.first_name[0]}</span>
+            <span className="error-text">
+              {Array.isArray(errors.first_name)
+                ? errors.first_name[0]
+                : errors.first_name}
+            </span>
           )}
         </div>
         <div className="input-group">
@@ -118,7 +141,11 @@ function SignUpForm() {
             required
           />
           {errors.last_name && (
-            <span className="error-text">{errors.last_name[0]}</span>
+            <span className="error-text">
+              {Array.isArray(errors.last_name)
+                ? errors.last_name[0]
+                : errors.last_name}
+            </span>
           )}
         </div>
       </div>

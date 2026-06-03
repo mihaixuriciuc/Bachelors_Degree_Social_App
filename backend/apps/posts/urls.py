@@ -1,28 +1,43 @@
-from django.urls import path,include
-
-
+from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
 from apps.posts import views
-from apps.posts.views import CommentViewSet, LikeViewSet, getMyPosts
 from apps.user.views import getMyProfile
-router = DefaultRouter()
-router.register(r'posts', views.PostViewSet)
 
+router = DefaultRouter()
+# basename= is required because PostViewSet overrides get_queryset()
+# instead of setting queryset= as a class attribute. The router needs
+# a name to generate URL names like 'post-list' and 'post-detail'.
+router.register(r'posts', views.PostViewSet, basename='post')
 
 urlpatterns = [
-    path('',include(router.urls)),
+    path('', include(router.urls)),
 
     path('profile/', getMyProfile, name='my-profile'),
-    path('profile/posts/', getMyPosts, name='my-posts'),
+    path('profile/posts/', views.getMyPosts, name='my-posts'),
 
-    path('posts/<int:post_pk>/comments/',CommentViewSet.as_view(
-        {'get':'list','post':'create','put':'update','patch':'partial_update','delete':'destroy'}),
-    name='comment-list'),
+    # Comments support full CRUD: you can list, create, update, and delete comments.
+    path(
+        'posts/<int:post_pk>/comments/',
+        views.CommentViewSet.as_view({
+            'get': 'list',
+            'post': 'create',
+            'put': 'update',
+            'patch': 'partial_update',
+            'delete': 'destroy',
+        }),
+        name='comment-list',
+    ),
 
-    path('posts/<int:post_pk>/likes/',LikeViewSet.as_view(
-        {'get':'list','post':'create','put':'update','patch':'partial_update','delete':'destroy'}),
-          name='like-list'
-         )
-
+    # Likes only support list, create, and delete.
+    # PUT and PATCH are removed — updating a like is meaningless.
+    path(
+        'posts/<int:post_pk>/likes/',
+        views.LikeViewSet.as_view({
+            'get': 'list',
+            'post': 'create',
+            'delete': 'destroy',
+        }),
+        name='like-list',
+    ),
 ]

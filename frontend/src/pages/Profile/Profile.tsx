@@ -1,43 +1,37 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom"; // 👈 Import Link and useNavigate
-import api from "../../api/api";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Post } from "../../interfaces/postType";
-import { UserProfile } from "../../interfaces/userType";
 import ProfileHeader from "../../components/ProfileHeader/ProfileHeader";
 import PostsGrid from "../../components/PostsGrid/PostsGrid";
 import PostCard from "../../components/PostCard/PostCard";
+import { useFetch } from "../../hooks/useFetch";
+import { profileService } from "../../services/profileService";
+import { postService } from "../../services/postService";
 import "./Profile.scss";
 
 function Profile() {
-  const navigate = useNavigate(); // 👈 Initialize navigate
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
 
-  useEffect(() => {
-    const fetchProfileData = async () => {
-      try {
-        const profileRes = await api.get("/account/profile/");
-        const postsRes = await api.get("/account/profile/posts/");
-        setProfile(profileRes.data);
-        setPosts(postsRes.data);
-      } catch (err) {
-        console.error("Error fetching profile data:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
+  // Two parallel fetches — both run on mount, both have their own
+  // loading state. We render the page once the profile is ready;
+  // the posts grid will show its own loading state if needed.
+  const { data: profile, loading: profileLoading } = useFetch(() =>
+    profileService.getMine(),
+  );
+  const { data: posts, loading: postsLoading } = useFetch(() =>
+    postService.listMine(),
+  );
 
-    fetchProfileData();
-  }, []);
-
-  if (loading) return <div className="profile-status">Loading profile...</div>;
-  if (!profile) return <div className="profile-status">Profile not found.</div>;
+  if (profileLoading) {
+    return <div className="profile-status">Loading profile...</div>;
+  }
+  if (!profile) {
+    return <div className="profile-status">Profile not found.</div>;
+  }
 
   return (
     <div className="profile-page">
-      {/* 👇 NEW TOP NAVIGATION 👇 */}
       <nav className="profile-top-nav">
         <button className="btn-back" onClick={() => navigate("/feed")}>
           &larr; Back
@@ -45,11 +39,16 @@ function Profile() {
         <Link to="/feed" className="logo-link">
           <h1 className="logo-small">DOT8</h1>
         </Link>
-        <div className="spacer"></div> {/* Keeps the logo perfectly centered */}
+        <div className="spacer"></div>
       </nav>
 
       <ProfileHeader profile={profile} />
-      <PostsGrid posts={posts} onPostClick={setSelectedPost} />
+
+      {postsLoading ? (
+        <p className="no-posts">Loading posts...</p>
+      ) : (
+        <PostsGrid posts={posts || []} onPostClick={setSelectedPost} />
+      )}
 
       {selectedPost && (
         <div

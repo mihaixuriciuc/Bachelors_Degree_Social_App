@@ -1,16 +1,18 @@
-import { useState } from "react";
-import api from "../../api/api";
-import "./PostCard.scss";
 import { Post } from "../../interfaces/postType";
 import { usePostActions } from "../../hooks/usePostActions";
 import { useCommentPost } from "../../hooks/useCommentsPost";
 import CommentsTextField from "../Comments/CommentsTextField/CommentsTextField";
 import CommentBox from "../Comments/CommentsBox/CommentsBox";
+import "./PostCard.scss";
 
 function PostCard({ post }: { post: Post }) {
   const date = new Date(post.created_at).toLocaleDateString();
 
   const { isLiked, likesCount, handleLike } = usePostActions(post);
+
+  // useCommentPost now returns everything related to comments:
+  // the list, loading state, count, input value, submit handler,
+  // and the show/hide toggle.
   const {
     comments,
     loading,
@@ -21,12 +23,14 @@ function PostCard({ post }: { post: Post }) {
     setShowComments,
     showComments,
   } = useCommentPost(post);
+
   return (
     <div className="post-card">
       <div className="post-header">
         <span className="author">{post.author}</span>
         <span className="date">{date}</span>
       </div>
+
       <div className="post-body">
         <h2 className="post-title">{post.title}</h2>
         <p className="post-content">{post.content}</p>
@@ -36,8 +40,8 @@ function PostCard({ post }: { post: Post }) {
           </div>
         )}
       </div>
+
       <div className="post-footer">
-        {/* Dynamic Class for Liked State */}
         <button
           className={`btn-action ${isLiked ? "liked" : ""}`}
           onClick={handleLike}
@@ -53,9 +57,9 @@ function PostCard({ post }: { post: Post }) {
           💬 Comment {commentsCount > 0 && `(${commentsCount})`}
         </button>
       </div>
+
       {showComments && (
         <div>
-          {/* We pass 'comments' and 'loading' from the useCommentPost hook */}
           <CommentBox comments={comments} loading={loading} />
           <CommentsTextField
             post={post}

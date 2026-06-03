@@ -101,6 +101,20 @@
         cursor: not-allowed;
       }
     }
+    .forgot-password-link {
+      text-align: center;
+    }
+
+    .link-primary {
+      color: $primary-color; // use the variable instead of hardcoding #9414e3
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 600;
+
+      &:hover {
+        text-decoration: underline; // now you can add hover behavior too
+      }
+    }
   }
 }
 
