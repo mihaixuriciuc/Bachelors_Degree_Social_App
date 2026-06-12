@@ -3,6 +3,7 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
+from apps.user.models import User
 from .models import Post, Comment, Like
 from .permissions import IsAuthorOrReadOnly
 from .serializers import PostSerializer, CommentSerializer, LikeSerializer
@@ -22,10 +23,6 @@ class PostViewSet(viewsets.ModelViewSet):
         return Post.objects.prefetch_related('likes', 'comments').order_by('-created_at')
 
     def get_throttles(self):
-        # Only throttle creation, not reads or updates.
-        # get_throttles() is called by DRF before the view runs.
-        # It returns a list of throttle instances; DRF checks each one.
-        # If any returns False, the request gets a 429 response.
         if self.action == 'create':
             return [PostCreationThrottle()]
         return super().get_throttles()
@@ -37,6 +34,7 @@ class PostViewSet(viewsets.ModelViewSet):
 class CommentViewSet(viewsets.ModelViewSet):
     serializer_class = CommentSerializer
     permission_classes = (permissions.IsAuthenticated, IsAuthorOrReadOnly)
+    pagination_class = None
 
     def get_queryset(self):
         post_id = self.kwargs.get('post_pk')
@@ -56,18 +54,10 @@ class CommentViewSet(viewsets.ModelViewSet):
 class LikeViewSet(viewsets.ModelViewSet):
     """
     Likes only support three actions: list, create, and destroy.
-
-    PUT and PATCH are meaningless for a like — there's nothing to update.
-    Exposing them violates the Interface Segregation Principle: the client
-    sees methods that make no sense for this resource.
-
-    We restrict the allowed actions here, and the urls.py only registers
-    the matching HTTP methods.
+    PUT and PATCH are meaningless for a like - there's nothing to update.
     """
     serializer_class = LikeSerializer
     permission_classes = (permissions.IsAuthenticated, IsAuthorOrReadOnly)
-    # http_method_names controls which HTTP verbs the ViewSet responds to.
-    # This is the simplest way to block PUT/PATCH without writing custom logic.
     http_method_names = ['get', 'post', 'delete', 'head', 'options']
 
     def get_queryset(self):
@@ -102,5 +92,15 @@ class LikeViewSet(viewsets.ModelViewSet):
 @permission_classes([permissions.IsAuthenticated])
 def getMyPosts(request):
     user_posts = Post.objects.filter(author=request.user).prefetch_related('likes', 'comments')
+    serializer = PostSerializer(user_posts, many=True, context={'request': request})
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def getUserPosts(request, username):
+    """Posts authored by any user, looked up by username."""
+    target = get_object_or_404(User, username=username)
+    user_posts = Post.objects.filter(author=target).prefetch_related('likes', 'comments')
     serializer = PostSerializer(user_posts, many=True, context={'request': request})
     return Response(serializer.data)
