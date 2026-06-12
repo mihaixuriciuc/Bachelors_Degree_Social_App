@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { PostComment } from "../../../interfaces/commentType";
 import "./Comment.scss";
 
@@ -7,7 +8,10 @@ function CommentCard({ comment }: { comment: PostComment }) {
   return (
     <div className="comment-object">
       <div className="comment-header">
-        <span className="author">{comment.author}</span>
+        {/* Clicking the author opens their public profile */}
+        <Link to={`/users/${comment.author}`} className="author">
+          {comment.author}
+        </Link>
         <span className="date">{date}</span>
       </div>
       <div>

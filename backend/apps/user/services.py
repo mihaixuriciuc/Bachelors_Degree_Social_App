@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import Profile, User
+from .models import Profile, User, Follow
 from .tokens import TokenService
 
 
@@ -47,18 +47,16 @@ class UserService:
 
         Previously this was a manual check: len(password) < 8 or no digit.
         That approach meant your settings.py validators were configured but
-        never actually used — a Dependency Inversion violation.  The settings
+        never actually used - a Dependency Inversion violation. The settings
         declare the *abstraction* (what rules apply); the service should depend
         on that abstraction, not re-implement its own rules.
 
         Django's validators give you: minimum length, common-password check,
-        numeric-only check, and user-attribute-similarity check — all for free.
+        numeric-only check, and user-attribute-similarity check - all for free.
         """
         try:
             validate_password(password, user=user)
         except DjangoValidationError as exc:
-            # exc.messages is a list like ['This password is too short.', ...]
-            # We join them into a single string for our ValueError convention.
             raise ValueError(' '.join(exc.messages))
 
     @staticmethod
@@ -68,7 +66,6 @@ class UserService:
         if User.objects.filter(email=email).exists():
             raise ValueError("This email is already registered.")
 
-        # Validate the password using Django's built-in validators.
         UserService.validate_new_password(password)
 
         user = User.objects.create_user(
@@ -116,15 +113,42 @@ class UserService:
         user.save()
 
 
+class FollowService:
+    """Handles follow/unfollow relationships between users."""
+
+    @staticmethod
+    def _get_user_or_raise(username: str) -> User:
+        try:
+            return User.objects.get(username=username)
+        except User.DoesNotExist:
+            raise ValueError("User not found.")
+
+    @staticmethod
+    def follow_user(follower: User, username_to_follow: str) -> None:
+        target = FollowService._get_user_or_raise(username_to_follow)
+
+        if target == follower:
+            raise ValueError("You cannot follow yourself.")
+
+        # get_or_create avoids a duplicate row (and avoids an IntegrityError
+        # from the unique_together constraint) if they already follow.
+        Follow.objects.get_or_create(follower=follower, following=target)
+
+    @staticmethod
+    def unfollow_user(follower: User, username_to_unfollow: str) -> None:
+        target = FollowService._get_user_or_raise(username_to_unfollow)
+        # .delete() on an empty queryset is a no-op, so this is safe even
+        # if they weren't following in the first place.
+        Follow.objects.filter(follower=follower, following=target).delete()
+
+    @staticmethod
+    def is_following(follower: User, target: User) -> bool:
+        return Follow.objects.filter(follower=follower, following=target).exists()
+
+
 class AuthService:
     """
     Handles login tokens and email-based flows (activation, password reset).
-
-    Notice how the uid/token encode-decode logic is now in TokenService.
-    Before, each method had its own copy of urlsafe_base64_encode/decode +
-    force_bytes/force_str + make_token/check_token.  That was four copies
-    of the same five lines.  Now each method is shorter and you can't
-    accidentally use different encoding in one flow vs another.
     """
 
     @staticmethod

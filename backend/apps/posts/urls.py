@@ -5,9 +5,6 @@ from apps.posts import views
 from apps.user.views import getMyProfile
 
 router = DefaultRouter()
-# basename= is required because PostViewSet overrides get_queryset()
-# instead of setting queryset= as a class attribute. The router needs
-# a name to generate URL names like 'post-list' and 'post-detail'.
 router.register(r'posts', views.PostViewSet, basename='post')
 
 urlpatterns = [
@@ -16,7 +13,9 @@ urlpatterns = [
     path('profile/', getMyProfile, name='my-profile'),
     path('profile/posts/', views.getMyPosts, name='my-posts'),
 
-    # Comments support full CRUD: you can list, create, update, and delete comments.
+    # Any user's posts, by username. Full path: /api/v1/account/users/<username>/posts/
+    path('users/<str:username>/posts/', views.getUserPosts, name='user-posts'),
+
     path(
         'posts/<int:post_pk>/comments/',
         views.CommentViewSet.as_view({
@@ -29,8 +28,6 @@ urlpatterns = [
         name='comment-list',
     ),
 
-    # Likes only support list, create, and delete.
-    # PUT and PATCH are removed — updating a like is meaningless.
     path(
         'posts/<int:post_pk>/likes/',
         views.LikeViewSet.as_view({

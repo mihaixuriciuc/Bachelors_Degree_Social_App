@@ -15,15 +15,12 @@
     flex-shrink: 0;
     width: 120px;
     height: 120px;
-    min-width: 120px; /* Forces flexbox to never shrink this */
+    min-width: 120px;
     min-height: 120px;
-
-    /* Move the circle shaping and border to the container */
     border-radius: 50%;
     border: 3px solid $primary-color;
-    overflow: hidden; /* Clips the image perfectly inside */
-    background-color: #f8f9fa; /* Nice fallback color if image breaks */
-
+    overflow: hidden;
+    background-color: #f8f9fa;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -33,7 +30,6 @@
       height: 100%;
       object-fit: cover;
       display: block;
-      /* Removed border and border-radius from here since the container handles it */
     }
   }
 
@@ -46,6 +42,36 @@
       font-size: 1.8rem;
       color: $text-dark;
       margin: 0;
+    }
+
+    // Clickable follower / following counts
+    .follow-stats {
+      display: flex;
+      gap: 25px;
+
+      .stat {
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        font-size: 0.95rem;
+        color: $text-muted;
+        font-family: inherit;
+        transition: color 0.2s ease;
+
+        .count {
+          font-weight: 700;
+          color: $text-dark;
+        }
+
+        &:hover {
+          color: $primary-color;
+
+          .count {
+            color: $primary-color;
+          }
+        }
+      }
     }
 
     .description {
@@ -73,13 +99,45 @@
         height: 40px;
         background-color: #eee;
         color: $text-dark;
-
-        /* The magic fixes for Link vs Button differences */
         font-family: inherit;
         box-sizing: border-box;
 
         &:hover {
           background-color: #ddd;
+        }
+      }
+
+      // Follow button — primary color when not following,
+      // muted/outlined when already following.
+      .btn-follow {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 25px;
+        border-radius: $border-radius;
+        font-weight: 700;
+        font-size: 0.95rem;
+        cursor: pointer;
+        border: none;
+        height: 40px;
+        font-family: inherit;
+        box-sizing: border-box;
+        background-color: $primary-color;
+        color: $white;
+        transition: background-color 0.2s ease;
+
+        &:hover {
+          background-color: $primary-hover;
+        }
+
+        // "Following" state — looks secondary so "unfollow" feels less prominent
+        &.following {
+          background-color: #eee;
+          color: $text-dark;
+
+          &:hover {
+            background-color: #ddd;
+          }
         }
       }
     }

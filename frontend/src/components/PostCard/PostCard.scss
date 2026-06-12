@@ -76,6 +76,14 @@
     }
 
     // Add this below the .post-footer block
+    .btn-delete {
+      margin-left: auto; // pushes the delete button to the far right
+      color: $error-color;
+
+      &:hover {
+        background-color: rgba($error-color, 0.1);
+      }
+    }
   }
 
   .post-image-container {

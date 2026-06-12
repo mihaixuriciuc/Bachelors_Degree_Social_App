@@ -5,6 +5,7 @@ import SignIn from "./pages/SignIn/SignIn";
 import { AuthProvider } from "./context/AuthContext";
 import Feed from "./pages/Feed/Feed";
 import Profile from "./pages/Profile/Profile";
+import UserProfile from "./pages/UserProfile/UserProfile";
 import CreatePost from "./pages/CreatePost/CreatePost";
 import ActivateAccount from "./pages/ActivateAccount/ActivateAccount";
 import CheckEmail from "./pages/CheckEmail/CheckEmail";
@@ -45,6 +46,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/users/:username"
+            element={
+              <ProtectedRoute>
+                <UserProfile />
               </ProtectedRoute>
             }
           />

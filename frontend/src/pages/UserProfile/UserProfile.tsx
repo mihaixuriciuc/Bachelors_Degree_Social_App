@@ -1,43 +1,61 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { Post } from "../../interfaces/postType";
 import ProfileHeader from "../../components/ProfileHeader/ProfileHeader";
 import PostsGrid from "../../components/PostsGrid/PostsGrid";
 import PostCard from "../../components/PostCard/PostCard";
-import SettingsDropdown from "../../components/SettingsDropdown/SettingsDropdown";
 import FollowListModal from "../../components/FollowListModal/FollowListModal";
 import { useFetch } from "../../hooks/useFetch";
+import { useFollow } from "../../hooks/useFollow";
 import { useFollowListModal } from "../../hooks/useFollowListModal";
-import { profileService } from "../../services/profileService";
-import { postService } from "../../services/postService";
-import "./Profile.scss";
+import { useAuth } from "../../hooks/useAuth";
+import { userService } from "../../services/userService";
+// Reuse the Profile page layout (top nav, modal overlay, status text).
+import "../Profile/Profile.scss";
 
-function Profile() {
+function UserProfile() {
+  const { username } = useParams<{ username: string }>();
   const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
 
-  const { data: profile, loading: profileLoading } = useFetch(() =>
-    profileService.getMine(),
+  // Re-fetch whenever the username in the URL changes (e.g. navigating from
+  // one profile to another via a follower list).
+  const { data: profile, loading: profileLoading } = useFetch(
+    () => userService.getProfile(username!),
+    [username],
   );
-  const { data: posts, loading: postsLoading } = useFetch(() =>
-    postService.listMine(),
+  const { data: posts, loading: postsLoading } = useFetch(
+    () => userService.getPosts(username!),
+    [username],
   );
 
-  // The modal needs the username to fetch the right lists. It's optional
-  // until the profile loads, which is fine — the hook guards against undefined.
-  const followModal = useFollowListModal(profile?.username);
+  const { isFollowing, followersCount, toggleFollow } = useFollow(
+    username,
+    profile,
+  );
+
+  const followModal = useFollowListModal(username);
+
+  // If you land on your own profile via /users/<you>, send you to /profile
+  // where you have edit controls (and no nonsensical "follow yourself" button).
+  useEffect(() => {
+    if (currentUser && username === currentUser.username) {
+      navigate("/profile", { replace: true });
+    }
+  }, [currentUser, username, navigate]);
 
   if (profileLoading) {
     return <div className="profile-status">Loading profile...</div>;
   }
   if (!profile) {
-    return <div className="profile-status">Profile not found.</div>;
+    return <div className="profile-status">User not found.</div>;
   }
 
   return (
     <div className="profile-page">
       <nav className="profile-top-nav">
-        <button className="btn-back" onClick={() => navigate("/feed")}>
+        <button className="btn-back" onClick={() => navigate(-1)}>
           &larr; Back
         </button>
         <Link to="/feed" className="logo-link">
@@ -50,15 +68,15 @@ function Profile() {
         username={profile.username}
         profilePic={profile.profile_pic}
         bio={profile.bio}
-        followersCount={profile.followers_count}
+        followersCount={followersCount}
         followingCount={profile.following_count}
         actions={
-          <>
-            <Link to="/create-post" className="btn-secondary">
-              Create Post
-            </Link>
-            <SettingsDropdown />
-          </>
+          <button
+            className={`btn-follow ${isFollowing ? "following" : ""}`}
+            onClick={toggleFollow}
+          >
+            {isFollowing ? "Following" : "Follow"}
+          </button>
         }
         onFollowersClick={() => followModal.open("followers")}
         onFollowingClick={() => followModal.open("following")}
@@ -101,4 +119,4 @@ function Profile() {
   );
 }
 
-export default Profile;
+export default UserProfile;

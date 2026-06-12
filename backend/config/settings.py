@@ -40,10 +40,14 @@ REST_FRAMEWORK = {
     ),
 
     'DEFAULT_THROTTLE_RATES': {
-        'post_create': '20/day',
-        'comment_create': '20/hour',
-        'like_create': '300/hour',
+        'post_create': '3/min',
+        'comment_create': '3/min',
+        'like_create': '3/min',
     },
+
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 10,
+
 }
 
 MIDDLEWARE = [
