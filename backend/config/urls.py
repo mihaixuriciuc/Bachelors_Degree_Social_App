@@ -7,6 +7,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/v1/', include('apps.user.urls')),
     path('api/v1/account/', include('apps.posts.urls')),
+    path('api/v1/bot-detection/', include('apps.bot_detection.urls')),
+
 ]
 
 if settings.DEBUG:

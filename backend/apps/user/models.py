@@ -8,10 +8,13 @@ class User(AbstractUser):
     email = models.EmailField(unique=True)  # sets email to unique
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    bot_risk_score = models.IntegerField(default=0)
+    is_flagged = models.BooleanField(default=False)
+    flag_reasons = models.JSONField(default=list, blank=True)
 
 
 class Profile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE)  # links the user and the profile
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
     profile_pic = models.ImageField(upload_to=user_directory_path, null=True, blank=True)
     bio = models.TextField(null=True, blank=True)
     website = models.URLField(null=True, blank=True)

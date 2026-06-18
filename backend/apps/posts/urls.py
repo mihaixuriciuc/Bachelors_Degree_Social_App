@@ -13,7 +13,6 @@ urlpatterns = [
     path('profile/', getMyProfile, name='my-profile'),
     path('profile/posts/', views.getMyPosts, name='my-posts'),
 
-    # Any user's posts, by username. Full path: /api/v1/account/users/<username>/posts/
     path('users/<str:username>/posts/', views.getUserPosts, name='user-posts'),
 
     path(

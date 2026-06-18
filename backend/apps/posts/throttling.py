@@ -1,26 +1,31 @@
 from rest_framework.throttling import UserRateThrottle
 
+from apps.bot_detection.services import EventLogger
 
-class PostCreationThrottle(UserRateThrottle):
-    """
-    Limits how many posts a single user can create per day.
-    The actual number (e.g. '20/day') is set in settings.py under the
-    'post_create' key.  Changing the rate doesn't require touching any code.
-    """
+
+class LoggingUserRateThrottle(UserRateThrottle):
+    def allow_request(self, request, view):
+        # Stash the request so throttle_failure can access it later.
+        # DRF doesn't pass the request into throttle_failure directly,
+        # so we save a reference to it here first.
+        self.request = request
+        return super().allow_request(request, view)
+
+    def throttle_failure(self):
+        request = getattr(self, 'request', None)
+        if request is not None:
+            EventLogger.log_throttled(request, detail=f"scope: {self.scope}")
+        return super().throttle_failure()
+
+
+class PostCreationThrottle(LoggingUserRateThrottle):
+
     scope = 'post_create'
 
 
-class CommentCreationThrottle(UserRateThrottle):
-    """
-    Limits how many comments a single user can post per hour.
-    """
+class CommentCreationThrottle(LoggingUserRateThrottle):
     scope = 'comment_create'
 
 
-class LikeCreationThrottle(UserRateThrottle):
-    """
-    Limits how many likes a single user can create per hour.
-    A high limit (300/hour) because likes are cheap actions, but you still
-    want a ceiling to prevent scripted abuse.
-    """
+class LikeCreationThrottle(LoggingUserRateThrottle):
     scope = 'like_create'

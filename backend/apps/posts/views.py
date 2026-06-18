@@ -52,10 +52,6 @@ class CommentViewSet(viewsets.ModelViewSet):
 
 
 class LikeViewSet(viewsets.ModelViewSet):
-    """
-    Likes only support three actions: list, create, and destroy.
-    PUT and PATCH are meaningless for a like - there's nothing to update.
-    """
     serializer_class = LikeSerializer
     permission_classes = (permissions.IsAuthenticated, IsAuthorOrReadOnly)
     http_method_names = ['get', 'post', 'delete', 'head', 'options']
@@ -99,7 +95,6 @@ def getMyPosts(request):
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def getUserPosts(request, username):
-    """Posts authored by any user, looked up by username."""
     target = get_object_or_404(User, username=username)
     user_posts = Post.objects.filter(author=target).prefetch_related('likes', 'comments')
     serializer = PostSerializer(user_posts, many=True, context={'request': request})

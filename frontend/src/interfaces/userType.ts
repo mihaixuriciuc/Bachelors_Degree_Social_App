@@ -4,6 +4,7 @@ export interface UserProfile {
   first_name: string;
   last_name: string;
   email: string;
+  is_staff: boolean; // whether this user is an admin (controls dashboard access)
   bio: string | null;
   profile_pic: string | null;
   website: string | null;

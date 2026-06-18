@@ -61,6 +61,29 @@
     max-width: 600px;
     margin: 30px auto;
     padding: 0 15px;
+
+    .btn-load-more {
+      display: block;
+      margin: 20px auto;
+      padding: 12px 30px;
+      background-color: $primary-color;
+      color: $white;
+      border: none;
+      border-radius: $border-radius;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: background-color 0.2s;
+
+      &:hover:not(:disabled) {
+        background-color: $primary-hover;
+      }
+
+      &:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+    }
   }
 
   .feed-status,

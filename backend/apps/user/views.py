@@ -4,6 +4,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from django.db.models import Q
+from apps.bot_detection.services import EventLogger
 
 from .models import Profile, User
 from .serializers import (
@@ -61,8 +62,11 @@ def signInUser(request):
         response.set_cookie('refresh_token', value=auth_data["refresh_token"], httponly=True, samesite='Lax')
         return response
     except ValueError as e:
+        EventLogger.log_failed_login(
+            request,
+            username=input_serializer.validated_data.get('username', ''),
+        )
         return Response({"error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
-
 
 @api_view(['POST'])
 def logOutUser(request):
@@ -189,13 +193,7 @@ def getUserProfile(request, username):
 @api_view(['POST', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def followUser(request, username):
-    """
-    POST   -> follow the user
-    DELETE -> unfollow the user
 
-    One view handles both because they're the same resource (a follow
-    relationship) being created or destroyed.
-    """
     try:
         if request.method == 'POST':
             FollowService.follow_user(request.user, username)
@@ -216,13 +214,8 @@ def followUser(request, username):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def getFollowers(request, username):
-    """List the users who follow `username`."""
-    target = get_object_or_404(User, username=username)
 
-    # target.followers = Follow rows where target is being followed.
-    # Each row's .follower is a user who follows target.
-    # select_related('follower__profile') prefetches the follower AND their
-    # profile in one query so the serializer's profile_pic lookup is free.
+    target = get_object_or_404(User, username=username)
     follows = target.followers.select_related('follower__profile')
     follower_users = [f.follower for f in follows]
 
@@ -235,11 +228,9 @@ def getFollowers(request, username):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def getFollowing(request, username):
-    """List the users that `username` follows."""
+
     target = get_object_or_404(User, username=username)
 
-    # target.following = Follow rows where target is the follower.
-    # Each row's .following is a user that target follows.
     follows = target.following.select_related('following__profile')
     following_users = [f.following for f in follows]
 
@@ -252,24 +243,12 @@ def getFollowing(request, username):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def searchUsers(request):
-    """
-    Search users by username, first name, or last name.
 
-    The query comes in as ?q=alice in the URL. We read it from
-    request.query_params (DRF's version of request.GET).
-    """
     query = request.query_params.get('q', '').strip()
 
-    # Don't search on an empty string — that would return every user.
     if not query:
         return Response([])
 
-    # Q objects let you build OR conditions. Without Q you can only AND
-    # filters together. Here we want: username contains q OR first_name
-    # contains q OR last_name contains q.
-    #
-    # __icontains means "case-insensitive contains" — searching "ali"
-    # matches "Alice", "aalimov", "natalia", etc.
     matches = (
         User.objects
         .filter(
@@ -277,12 +256,10 @@ def searchUsers(request):
             | Q(first_name__icontains=query)
             | Q(last_name__icontains=query)
         )
-        # Don't include the person doing the searching in their own results.
         .exclude(id=request.user.id)
-        # select_related('profile') so the serializer's profile_pic lookup
-        # doesn't fire a separate query per result (N+1).
+
         .select_related('profile')
-            # Cap the results so a broad search doesn't return thousands of rows.
+
         [:10]
     )
 

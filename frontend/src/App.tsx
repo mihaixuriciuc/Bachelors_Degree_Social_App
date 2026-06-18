@@ -14,6 +14,8 @@ import Security from "./pages/Security/Security";
 import ForgotPassword from "./pages/ForgotPassword/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword/ResetPassword";
 import { ProtectedRoute } from "./components/ProtectedRoute/ProtectedRoute";
+import { AdminRoute } from "./components/AdminRoute/AdminRoute";
+import AdminDashboard from "./pages/AdminDashboard/AdminDashboard";
 
 function App() {
   return (
@@ -79,6 +81,14 @@ function App() {
               <ProtectedRoute>
                 <Security />
               </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <AdminRoute>
+                <AdminDashboard />
+              </AdminRoute>
             }
           />
         </Routes>

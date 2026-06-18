@@ -26,15 +26,13 @@ INSTALLED_APPS = [
     'corsheaders',
     'apps.user',
     'apps.posts',
+    'apps.bot_detection',
 ]
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'apps.user.authentication.CustomCookieAuthentication',
     ),
-    # Deny by default. Public endpoints explicitly set AllowAny on the view.
-    # Previously this was AllowAny which meant every endpoint was public
-    # unless you remembered to add IsAuthenticated — easy to forget.
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
@@ -43,6 +41,7 @@ REST_FRAMEWORK = {
         'post_create': '3/min',
         'comment_create': '3/min',
         'like_create': '3/min',
+        'follow_create': '3/min',
     },
 
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
@@ -126,12 +125,10 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
 }
 
-# The URL your activation/reset emails link to.
-# Override this in your .env when deploying.
+
 FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5173')
 
-# Use console backend locally so emails print in the terminal.
-# Set EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend in production .env.
+
 EMAIL_BACKEND = env(
     'EMAIL_BACKEND',
     default='django.core.mail.backends.console.EmailBackend',

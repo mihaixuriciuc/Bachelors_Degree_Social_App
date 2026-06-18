@@ -10,7 +10,6 @@ from .tokens import TokenService
 
 
 class ProfileService:
-    """Handles public-facing profile data (bio, website, profile picture)."""
 
     @staticmethod
     def get_or_create_profile(user: User) -> Profile:
@@ -38,22 +37,11 @@ class ProfileService:
 
 
 class UserService:
-    """Handles user identity: username, email, password, first/last name."""
+
 
     @staticmethod
     def validate_new_password(password: str, user: User = None) -> None:
-        """
-        Runs the password through Django's AUTH_PASSWORD_VALIDATORS from settings.py.
 
-        Previously this was a manual check: len(password) < 8 or no digit.
-        That approach meant your settings.py validators were configured but
-        never actually used - a Dependency Inversion violation. The settings
-        declare the *abstraction* (what rules apply); the service should depend
-        on that abstraction, not re-implement its own rules.
-
-        Django's validators give you: minimum length, common-password check,
-        numeric-only check, and user-attribute-similarity check - all for free.
-        """
         try:
             validate_password(password, user=user)
         except DjangoValidationError as exc:
@@ -114,7 +102,6 @@ class UserService:
 
 
 class FollowService:
-    """Handles follow/unfollow relationships between users."""
 
     @staticmethod
     def _get_user_or_raise(username: str) -> User:
@@ -130,15 +117,11 @@ class FollowService:
         if target == follower:
             raise ValueError("You cannot follow yourself.")
 
-        # get_or_create avoids a duplicate row (and avoids an IntegrityError
-        # from the unique_together constraint) if they already follow.
         Follow.objects.get_or_create(follower=follower, following=target)
 
     @staticmethod
     def unfollow_user(follower: User, username_to_unfollow: str) -> None:
         target = FollowService._get_user_or_raise(username_to_unfollow)
-        # .delete() on an empty queryset is a no-op, so this is safe even
-        # if they weren't following in the first place.
         Follow.objects.filter(follower=follower, following=target).delete()
 
     @staticmethod
@@ -147,9 +130,6 @@ class FollowService:
 
 
 class AuthService:
-    """
-    Handles login tokens and email-based flows (activation, password reset).
-    """
 
     @staticmethod
     def login(username: str, password: str) -> dict:

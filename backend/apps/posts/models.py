@@ -32,7 +32,6 @@ class Like(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        # Prevents a user from liking the same post twice at the DB level.
         unique_together = ('author', 'post')
         ordering = ['-created_at']
 
