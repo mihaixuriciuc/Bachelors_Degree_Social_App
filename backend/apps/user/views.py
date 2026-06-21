@@ -1,10 +1,11 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.response import Response
 from django.db.models import Q
 from apps.bot_detection.services import EventLogger
+from apps.user.models import User
 
 from .models import Profile, User
 from .serializers import (
@@ -33,6 +34,7 @@ def singUpUser(request):
             email=input_serializer.validated_data['email'],
             password=input_serializer.validated_data['password'],
         )
+        EventLogger.log_signup(request, user)
         AuthService.send_activation_email(user)
         return Response(
             {"message": "Please check your email to activate your account."},
@@ -53,6 +55,11 @@ def signInUser(request):
             username=input_serializer.validated_data['username'],
             password=input_serializer.validated_data['password'],
         )
+        try:
+            logged_in_user = User.objects.get(username=auth_data["username"])
+            EventLogger.log_login(request, logged_in_user)
+        except User.DoesNotExist:
+            pass
 
         response = Response(
             {"status": "success", "username": auth_data["username"]},
@@ -267,3 +274,31 @@ def searchUsers(request):
         matches, many=True, context={'request': request}
     )
     return Response(serializer.data)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAdminUser])
+def delete_user(request, user_id):
+    """
+    Permanently delete a user account and all their data.
+    Cascades to posts, comments, likes, follows, and bot events via the
+    on_delete=CASCADE foreign keys. Irreversible — the frontend confirms
+    before calling this.
+
+    Guards against an admin deleting a staff account (including themselves)
+    by accident.
+    """
+    user = get_object_or_404(User, id=user_id)
+
+    if user.is_staff:
+        return Response(
+            {"error": "Cannot delete staff accounts."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    username = user.username
+    user.delete()  # cascades to all related data
+    return Response(
+        {"message": f"Account '{username}' permanently deleted."},
+        status=status.HTTP_200_OK,
+    )

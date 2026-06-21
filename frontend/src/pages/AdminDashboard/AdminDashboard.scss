@@ -265,6 +265,27 @@
       color: $error-color;
     }
   }
+  // Risk tier color-coding.
+  .tier-clean {
+    background-color: #e6f4ea;
+    color: #1e7e34;
+  }
+  .tier-suspicious {
+    background-color: #fff8e1;
+    color: #b8860b;
+  }
+  .tier-bot {
+    background-color: #fdecea;
+    color: #c0392b;
+  }
+
+  .tier-pill {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
 
   .btn-clear {
     background: none;
@@ -279,6 +300,28 @@
 
     &:hover {
       background: $error-color;
+      color: $white;
+    }
+  }
+  .action-buttons {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .btn-delete {
+    background: none;
+    border: 1px solid #c0392b;
+    color: #c0392b;
+    padding: 5px 12px;
+    border-radius: $border-radius;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    white-space: nowrap;
+
+    &:hover {
+      background: #c0392b;
       color: $white;
     }
   }

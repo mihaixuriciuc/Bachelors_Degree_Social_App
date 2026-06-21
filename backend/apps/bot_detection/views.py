@@ -47,24 +47,37 @@ def dashboard_stats(request):
 @permission_classes([IsAdminUser])
 def flagged_users(request):
     show_all = request.query_params.get('all') == 'true'
+    include_suspicious = request.query_params.get('suspicious') == 'true'
 
     qs = User.objects.filter(is_staff=False)
-    if not show_all:
+
+    if show_all:
+        pass  # everyone
+    elif include_suspicious:
+        # both tiers: likely bots AND suspicious
+        qs = qs.filter(risk_level__in=['likely_bot', 'suspicious'])
+    else:
+        # default: only likely bots (flagged)
         qs = qs.filter(is_flagged=True)
 
     qs = qs.order_by('-bot_risk_score', '-date_joined')
-
     serializer = FlaggedUserSerializer(qs, many=True, context={'request': request})
     return Response(serializer.data)
-
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def recent_events(request):
-    events = BotEvent.objects.select_related('user')[:50]
+    routine_types = [
+        BotEvent.EventType.SIGNUP,
+        BotEvent.EventType.LOGIN,
+    ]
+    events = (
+        BotEvent.objects
+        .exclude(event_type__in=routine_types)
+        .select_related('user')[:50]
+    )
     serializer = BotEventSerializer(events, many=True)
     return Response(serializer.data)
-
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])

@@ -21,4 +21,6 @@ export const botDetectionService = {
 
   clearFlag: (userId: number) =>
     api.post(`/bot-detection/clear-flag/${userId}/`),
+
+  deleteUser: (userId: number) => api.delete(`/users/${userId}/delete/`),
 };

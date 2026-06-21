@@ -18,7 +18,8 @@ class FlaggedUserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'username', 'email', 'bot_risk_score', 'is_flagged',
-            'flag_reasons',                       # the breakdown list
+            'flag_reasons',
+            'risk_level',
             'date_joined', 'is_active',
             'post_count', 'comment_count', 'follower_count',
         ]

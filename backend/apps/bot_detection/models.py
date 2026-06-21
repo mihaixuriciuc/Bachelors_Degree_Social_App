@@ -13,6 +13,19 @@ class BotEvent(models.Model):
         RAPID_FOLLOW = 'RAPID_FOLLOW', 'Rapid following'
         REPEATED_COMMENT = 'REPEATED_COMMENT', 'Repeated identical comment'
         SPAM_CONTENT = 'SPAM_CONTENT', 'Spam phrases detected'
+        SIGNUP = 'SIGNUP', 'Account created'
+        LOGIN = 'LOGIN', 'Successful login'
+        SUSPICIOUS_USERNAME = 'SUSPICIOUS_USERNAME', 'Suspicious username'
+        USERNAME_CLUSTER = 'USERNAME_CLUSTER', 'Username cluster (bot farm)'
+        INCOMPLETE_PROFILE = 'INCOMPLETE_PROFILE', 'Incomplete profile'
+        ACTIVITY_BURST = 'ACTIVITY_BURST', 'Activity burst'
+        REGULAR_RHYTHM = 'REGULAR_RHYTHM', 'Mechanical timing rhythm'
+        DUPLICATE_POSTS = 'DUPLICATE_POSTS', 'Near-duplicate posts'
+        DUPLICATE_IMAGE = 'DUPLICATE_IMAGE', 'Reused image across posts'
+        DUPLICATE_POST_BURST = 'DUPLICATE_POST_BURST', 'Burst of duplicate posts'
+        BOT_NETWORK = 'BOT_NETWORK', 'Dense follow cluster (bot network)'
+        ML_SPAM_COMMENT = 'ML_SPAM_COMMENT', 'Spam comments (classifier)'
+        ML_SPAM_BIO = 'ML_SPAM_BIO', 'Spam bio (classifier)'
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

@@ -34,3 +34,21 @@ class EventLogger:
             event_type=BotEvent.EventType.FAILED_LOGIN,
             detail=f"attempted username: {username}",
         )
+
+    @staticmethod
+    def log_signup(request, user):
+        EventLogger._safe_create(
+            user=user,
+            ip_address=get_client_ip(request),
+            event_type=BotEvent.EventType.SIGNUP,
+            detail="account created",
+        )
+
+    @staticmethod
+    def log_login(request, user):
+        EventLogger._safe_create(
+            user=user,
+            ip_address=get_client_ip(request),
+            event_type=BotEvent.EventType.LOGIN,
+            detail="successful login",
+        )

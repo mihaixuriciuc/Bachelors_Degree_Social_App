@@ -1,4 +1,20 @@
 // Matches the dashboard_stats endpoint.
+export type RiskLevel = "clean" | "suspicious" | "likely_bot";
+
+export interface FlaggedUser {
+  id: number;
+  username: string;
+  email: string;
+  bot_risk_score: number;
+  is_flagged: boolean;
+  risk_level: RiskLevel; // ← add
+  flag_reasons: FlagReason[];
+  date_joined: string;
+  is_active: boolean;
+  post_count: number;
+  comment_count: number;
+  follower_count: number;
+}
 export interface DashboardStats {
   flagged_count: number;
   total_users: number;
@@ -20,6 +36,7 @@ export interface FlaggedUser {
   email: string;
   bot_risk_score: number;
   is_flagged: boolean;
+  risk_level: RiskLevel;
   flag_reasons: FlagReason[]; // the breakdown of why this score
   date_joined: string;
   is_active: boolean;

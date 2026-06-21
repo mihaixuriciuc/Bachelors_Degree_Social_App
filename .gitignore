@@ -20,6 +20,9 @@ backend/media/
 backend/*.sqlite3
 **/__pycache__/
 **/*.pyc
+apps/bot_detection/ml/SMSSpamCollection
+apps/bot_detection/ml/smsspamcollection.zip
+apps/bot_detection/ml/spam_model.joblib
 
 # --- FRONTEND (React/Vite) ---
 frontend/.vite/

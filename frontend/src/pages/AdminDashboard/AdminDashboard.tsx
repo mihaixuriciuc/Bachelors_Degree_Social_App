@@ -60,16 +60,38 @@ function AdminDashboard() {
       console.error("Clear flag failed", err);
     }
   };
+  const handleDeleteUser = async (userId: number, username: string) => {
+    const confirmed = window.confirm(
+      `Permanently delete "${username}"? This removes the account and all ` +
+        `their posts, comments, and activity. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      await botDetectionService.deleteUser(userId);
+      // Remove from the table immediately.
+      setFlagged((prev) => prev.filter((u) => u.id !== userId));
+    } catch (err) {
+      console.error("Delete failed", err);
+    }
+  };
 
   // Toggle the expanded reasons row.
   const toggleExpand = (userId: number) => {
     setExpandedId((current) => (current === userId ? null : userId));
   };
 
-  const scoreClass = (score: number) => {
-    if (score >= 60) return "score-high";
-    if (score >= 30) return "score-mid";
-    return "score-low";
+  // Map the risk tier to a CSS class for color-coding.
+  const tierClass = (level: string) => {
+    if (level === "likely_bot") return "tier-bot";
+    if (level === "suspicious") return "tier-suspicious";
+    return "tier-clean";
+  };
+
+  const tierLabel = (level: string) => {
+    if (level === "likely_bot") return "Likely Bot";
+    if (level === "suspicious") return "Suspicious";
+    return "Clean";
   };
 
   return (
@@ -195,9 +217,16 @@ function AdminDashboard() {
                         </td>
                         <td>
                           <span
-                            className={`score-badge ${scoreClass(u.bot_risk_score)}`}
+                            className={`score-badge ${tierClass(u.risk_level)}`}
                           >
                             {u.bot_risk_score}
+                          </span>
+                        </td>
+                        <td>
+                          <span
+                            className={`tier-pill ${tierClass(u.risk_level)}`}
+                          >
+                            {tierLabel(u.risk_level)}
                           </span>
                         </td>
                         <td>{u.post_count}</td>
@@ -205,7 +234,7 @@ function AdminDashboard() {
                         <td>{u.follower_count}</td>
                         <td>{new Date(u.date_joined).toLocaleDateString()}</td>
                         <td>
-                          {u.is_flagged && (
+                          <div className="action-buttons">
                             <button
                               className="btn-clear"
                               onClick={(e) => {
@@ -215,7 +244,16 @@ function AdminDashboard() {
                             >
                               Clear Flag
                             </button>
-                          )}
+                            <button
+                              className="btn-delete"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteUser(u.id, u.username);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
 

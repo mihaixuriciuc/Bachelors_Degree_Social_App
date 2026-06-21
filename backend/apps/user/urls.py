@@ -21,7 +21,7 @@ urlpatterns = [
     path('profile/update/', views.updateMyProfile, name='update-profile'),
     path('security/update/', views.updateMySecurity, name='update-security'),
 
-
+    path('users/<int:user_id>/delete/', views.delete_user, name='delete_user'),
     path('users/search/', views.searchUsers, name='user-search'),
     path('users/<str:username>/follow/', views.followUser, name='follow-user'),
     path('users/<str:username>/followers/', views.getFollowers, name='user-followers'),
