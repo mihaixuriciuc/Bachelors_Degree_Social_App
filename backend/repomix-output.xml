@@ -47,9 +47,24 @@ apps/
         __init__.py
         _bot_helpers.py
         _http_client.py
+        seed_activity_burst.py
+        seed_all.py
         seed_bot_follow_network.py
         seed_bot_normal_humans.py
+        seed_duplicate_image.py
+        seed_duplicate_post_burst.py
+        seed_duplicate_posts.py
+        seed_follow_velocity.py
         seed_ml_spam.py
+        seed_near_duplicate_comments.py
+        seed_profile_incomplete.py
+        seed_regular_rythm.py
+        seed_repeated_comments.py
+        seed_shared_ip.py
+        seed_spam_phrases.py
+        seed_username_blocklist.py
+        seed_username_cluster.py
+        seed_username_pattern.py
         sim_engagement.py
         sim_humans.py
         sim_spam.py
@@ -157,11 +172,54 @@ would try to treat it as a runnable command.
 """
 
 from apps.user.models import User, Profile
-
-# Tag put in every seeded account's email so --clear can find and remove
-# exactly the seeded accounts (and nothing real).
 SEED_TAG = "seedbot.test"
 
+
+from apps.posts.models import Post, Comment
+from apps.bot_detection.models import BotEvent
+
+
+def backdate(queryset_or_obj, when):
+    """
+    Force created_at to a specific time. Needed because created_at uses
+    auto_now_add=True, which ignores any value passed at creation — the
+    only way to set it is an UPDATE after the row exists. Time-based checks
+    (activity burst, rhythm, follow velocity, post burst) depend on this.
+    """
+    pk = queryset_or_obj.pk
+    type(queryset_or_obj).objects.filter(pk=pk).update(created_at=when)
+
+
+def make_post(user, title, content, image=None, created_at=None):
+    """Create a post, optionally backdated and with an image filename."""
+    post = Post.objects.create(author=user, title=title, content=content)
+    if image is not None:
+        # Store a fake image path; the duplicate-image check reads the
+        # filename, the file doesn't need to physically exist for scoring.
+        Post.objects.filter(pk=post.pk).update(image=image)
+    if created_at is not None:
+        backdate(post, created_at)
+    return post
+
+
+def make_comment(user, post, content, created_at=None):
+    comment = Comment.objects.create(author=user, post=post, content=content)
+    if created_at is not None:
+        backdate(comment, created_at)
+    return comment
+
+
+def make_event(user, event_type, detail="", ip_address=None, created_at=None):
+    """Write a BotEvent row directly (for IP/throttle/failed-login seeds)."""
+    event = BotEvent.objects.create(
+        user=user,
+        event_type=event_type,
+        detail=detail,
+        ip_address=ip_address,
+    )
+    if created_at is not None:
+        backdate(event, created_at)
+    return event
 
 def make_user(username, bio=None, with_pic=False, extra_tag=""):
     """
@@ -299,6 +357,213 @@ def get_target_post_id() -> int:
     if not post:
         raise ValueError("No posts found in the database! Please create at least one post manually or via seeders.")
     return post.id
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_activity_burst.py">
+"""
+Targets check_activity_burst: 30+ total actions (posts + comments + likes +
+follows) within ACTIVITY_BURST_WINDOW_MINUTES (5 min). All actions are
+backdated into one tight window.
+
+We use mixed action types and DISTINCT content so the duplicate/repeat
+checks stay quiet — isolating the volume signal.
+
+Run:
+    python manage.py seed_activity_burst
+    python manage.py seed_activity_burst --clear
+"""
+
+from django.utils import timezone
+from datetime import timedelta
+from django.core.management.base import BaseCommand
+
+from apps.posts.models import Post, Like
+from apps.user.models import Follow
+from ._bot_helpers import (
+    make_user, make_post, make_comment, clear_by_tag, backdate,
+)
+
+EXTRA_TAG = "activity_burst.seedbot.test"
+
+
+class Command(BaseCommand):
+    help = "Seed a user with 30+ actions in a 5-minute window."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        self.stdout.write(self.style.NOTICE("Seeding activity-burst bot..."))
+
+        bot = make_user(
+            username="bursty_real",
+            bio="Very active community member.",
+            with_pic=True,
+            extra_tag=EXTRA_TAG,
+        )
+
+        # A few target users + posts to like/follow/comment on.
+        targets = []
+        for i in range(5):
+            t = make_user(
+                username=f"burst_target_{i}",
+                bio="A target account.",
+                with_pic=True,
+                extra_tag=EXTRA_TAG,
+            )
+            targets.append(t)
+        target_posts = [
+            make_post(t, f"Post by target {i}", "Some unique content here.")
+            for i, t in enumerate(targets)
+        ]
+
+        now = timezone.now()
+        # Put every action ~10 seconds apart, all within ~4 minutes.
+        def t(seconds):
+            return now - timedelta(seconds=seconds)
+
+        action_count = 0
+        clock = 0
+
+        # 10 distinct posts
+        for i in range(10):
+            make_post(bot, f"Burst post {i}",
+                      f"Distinct content number {i} for the burst test.",
+                      created_at=t(clock))
+            clock += 8
+            action_count += 1
+
+        # 10 distinct comments
+        for i in range(10):
+            make_comment(bot, target_posts[i % len(target_posts)],
+                         f"Distinct comment number {i} here.",
+                         created_at=t(clock))
+            clock += 8
+            action_count += 1
+
+        # 6 likes
+        for i in range(6):
+            like = Like.objects.create(
+                author=bot, post=target_posts[i % len(target_posts)]
+            )
+            backdate(like, t(clock))
+            clock += 8
+            action_count += 1
+
+        # 6 follows
+        for i in range(min(5, len(targets))):
+            f = Follow.objects.create(follower=bot, following=targets[i])
+            backdate(f, t(clock))
+            clock += 8
+            action_count += 1
+
+        self.stdout.write(self.style.SUCCESS(
+            f"\nDone. 'bursty_real' has {action_count} actions in ~4 min → "
+            "check_activity_burst."
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_all.py">
+"""
+Runs every bot-detection seed command in one go, creating a full population
+that exercises every check in the engine — including the four complex
+algorithms (Levenshtein, TF-IDF/cosine, connected components, Naive Bayes).
+
+After running this, open the dashboard and Recompute. You should see each
+seeded account flagged by its specific target check, while the normal-human
+control group stays clean (proving no false positives).
+
+Run:
+    python manage.py seed_all
+    python manage.py seed_all --clear      # tear everything down
+"""
+
+from django.core.management import call_command
+from django.core.management.base import BaseCommand
+
+# Order matters slightly: create the human/control population and real posts
+# FIRST, so that seeds needing "a post to comment on" or "real users to
+# camouflage-follow" have something to reference.
+SEED_COMMANDS = [
+    # Control group + real content first.
+    "seed_bot_normal_humans",
+
+    # --- Username + profile checks (Batch A) ---
+    "seed_username_pattern",
+    "seed_username_blocklist",       # Levenshtein (fuzzy blocklist)
+    "seed_username_cluster",         # Levenshtein (fuzzy cluster)
+    "seed_profile_incomplete",
+
+    # --- Content checks (Batch B) ---
+    "seed_repeated_comments",
+    "seed_near_duplicate_comments",  # TF-IDF / cosine
+    "seed_spam_phrases",
+    "seed_duplicate_posts",          # TF-IDF / cosine
+    "seed_duplicate_image",
+    "seed_duplicate_post_burst",     # TF-IDF / cosine
+
+    # --- Timing / behavior checks (Batch C) ---
+    "seed_activity_burst",
+    "seed_regular_rhythm",
+    "seed_follow_velocity",
+
+    # --- Event-based checks (Batch D) ---
+    "seed_shared_ip",
+    "seed_throttle_events",
+    "seed_failed_logins",
+
+    # --- Complex algorithms with existing seeds ---
+    "seed_bot_follow_network",       # connected components
+    "seed_ml_spam",                  # Naive Bayes
+]
+
+
+class Command(BaseCommand):
+    help = "Run (or clear) every bot-detection seed command at once."
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--clear',
+            action='store_true',
+            help='Clear all seeded accounts from every seed command.',
+        )
+
+    def handle(self, *args, **options):
+        clear = options['clear']
+        action = "Clearing" if clear else "Seeding"
+
+        self.stdout.write(self.style.NOTICE(
+            f"=== {action} ALL bot-detection seed data ===\n"
+        ))
+
+        for command in SEED_COMMANDS:
+            self.stdout.write(self.style.HTTP_INFO(f"\n>>> {command}"))
+            try:
+                if clear:
+                    call_command(command, '--clear')
+                else:
+                    call_command(command)
+            except Exception as e:
+                # Don't let one failing seed stop the rest — report and move on.
+                self.stdout.write(self.style.ERROR(
+                    f"  !! {command} failed: {e}"
+                ))
+
+        if clear:
+            self.stdout.write(self.style.SUCCESS(
+                "\n=== All seed data cleared. ==="
+            ))
+        else:
+            self.stdout.write(self.style.SUCCESS(
+                "\n=== All seed data created. ===\n"
+                "Next: open the dashboard and click Recompute.\n"
+                "Expect: every bot archetype flagged by its target check; "
+                "the normal-human control group stays clean."
+            ))
 </file>
 
 <file path="apps/bot_detection/management/commands/seed_bot_follow_network.py">
@@ -605,23 +870,262 @@ class Command(BaseCommand):
         ))
 </file>
 
-<file path="apps/bot_detection/management/commands/seed_ml_spam.py">
+<file path="apps/bot_detection/management/commands/seed_duplicate_image.py">
 """
-Creates bots whose comments and bios are spammy in WORDING but deliberately
-avoid the hardcoded spam phrases — so check_spam_phrases (exact matching)
-MISSES them and only the Naive Bayes classifier (check_spam_comments /
-check_spam_bio) catches them.
-
-This is the demo that justifies the classifier: it catches novel,
-reworded spam that exact phrase-matching cannot.
-
-The usernames are clean and the profiles have bios, so the username and
-profile checks do NOT fire — meaning any flag these accounts get comes
-specifically from the classifier. That isolates what we're demonstrating.
+Targets check_duplicate_image: the same image FILENAME reused across 3+
+posts. The check reads the stored filename (not file content), so a fake
+path reused across posts triggers it — no real file needed.
 
 Run:
-    python manage.py seed_ml_spam
-    python manage.py seed_ml_spam --clear
+    python manage.py seed_duplicate_image
+    python manage.py seed_duplicate_image --clear
+"""
+
+from django.core.management.base import BaseCommand
+from ._bot_helpers import make_user, make_post, clear_by_tag
+
+EXTRA_TAG = "duplicate_image.seedbot.test"
+
+# Same filename in every post's image path → reused-image signal.
+SAME_IMAGE = "user_test/post_content/promo_banner.png"
+
+
+class Command(BaseCommand):
+    help = "Seed a user reusing the same image filename across posts."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        self.stdout.write(self.style.NOTICE("Seeding duplicate-image bot..."))
+
+        bot = make_user(
+            username="imagedupe_real",
+            bio="Posting my favourite picture a lot.",
+            with_pic=True,
+            extra_tag=EXTRA_TAG,
+        )
+
+        # 4 posts, all with the SAME image filename (threshold is 3).
+        # Distinct, non-duplicate text so the duplicate-POSTS check stays
+        # quiet — isolating the image check.
+        texts = [
+            ("My day", "A good morning to start the week off well."),
+            ("Thoughts", "Thinking about the weekend plans ahead."),
+            ("Update", "Quick update on what I have been up to lately."),
+            ("Evening", "Winding down after a long productive day."),
+        ]
+        for title, content in texts:
+            make_post(bot, title, content, image=SAME_IMAGE)
+
+        self.stdout.write(self.style.SUCCESS(
+            "\nDone. 'imagedupe_real' reused one image across 4 posts → "
+            "check_duplicate_image."
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_duplicate_post_burst.py">
+"""
+Targets check_duplicate_post_burst: 3+ posts within POST_BURST_WINDOW_MINUTES
+that are ALSO near-duplicates of each other. The conjunction (fast + similar)
+is the signal — stronger than either alone.
+
+Uses backdating so all posts fall inside the 10-minute window.
+
+Run:
+    python manage.py seed_duplicate_post_burst
+    python manage.py seed_duplicate_post_burst --clear
+"""
+
+from django.utils import timezone
+from datetime import timedelta
+from django.core.management.base import BaseCommand
+from ._bot_helpers import make_user, make_post, clear_by_tag
+
+EXTRA_TAG = "dup_post_burst.seedbot.test"
+
+POSTS = [
+    ("Flash deal", "Limited flash deal on now, grab yours before it ends"),
+    ("Flash deal now", "Limited flash deal happening now, grab yours before it ends"),
+    ("Flash deal today", "A limited flash deal on now, get yours before it ends"),
+    ("Flash sale", "Limited flash deal on right now, grab yours before it ends"),
+]
+
+
+class Command(BaseCommand):
+    help = "Seed a burst of near-duplicate posts in a short window."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        self.stdout.write(self.style.NOTICE("Seeding duplicate-post-burst bot..."))
+
+        bot = make_user(
+            username="burster_real",
+            bio="Excited to share these offers!",
+            with_pic=True,
+            extra_tag=EXTRA_TAG,
+        )
+
+        # All within the last few minutes → inside the burst window.
+        now = timezone.now()
+        for i, (title, content) in enumerate(POSTS):
+            # Spread them 1 minute apart, all within ~4 min (< 10 min window).
+            make_post(bot, title, content,
+                      created_at=now - timedelta(minutes=i))
+
+        self.stdout.write(self.style.SUCCESS(
+            "\nDone. 'burster_real' posted 4 near-duplicate posts in minutes → "
+            "check_duplicate_post_burst (and likely check_duplicate_posts too)."
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_duplicate_posts.py">
+"""
+Targets check_duplicate_posts (TF-IDF cosine on title+content blobs).
+Reworded promotional posts — not identical, but near-duplicate. Needs 3+
+posts and 2+ similar pairs.
+
+Run:
+    python manage.py seed_duplicate_posts
+    python manage.py seed_duplicate_posts --clear
+"""
+
+from django.core.management.base import BaseCommand
+from ._bot_helpers import make_user, make_post, clear_by_tag
+
+EXTRA_TAG = "duplicate_posts.seedbot.test"
+
+POSTS = [
+    ("Huge sale today", "Grab our amazing discounts before they are gone today"),
+    ("Huge sale now", "Grab the amazing discounts before they're gone right now"),
+    ("Big sale today", "Get our amazing discounts before they are gone today"),
+    ("Massive sale", "Grab these amazing discounts before they are gone today"),
+]
+
+
+class Command(BaseCommand):
+    help = "Seed a user with reworded near-duplicate posts (TF-IDF)."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        self.stdout.write(self.style.NOTICE("Seeding duplicate-posts bot..."))
+
+        bot = make_user(
+            username="postdupe_real",
+            bio="Local shop owner sharing offers.",
+            with_pic=True,
+            extra_tag=EXTRA_TAG,
+        )
+        for title, content in POSTS:
+            make_post(bot, title, content)
+
+        self.stdout.write(self.style.SUCCESS(
+            "\nDone. 'postdupe_real' has reworded duplicate posts → "
+            "check_duplicate_posts."
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_follow_velocity.py">
+"""
+Targets check_follow_velocity: 20+ follows within
+FOLLOW_VELOCITY_WINDOW_MINUTES (60 min). Backdated into the window.
+
+NOTE: 20+ follows in 5 min would ALSO trip check_activity_burst. To isolate
+follow-velocity, we spread the follows across ~50 minutes (over the 5-min
+burst window) so ONLY the hourly follow check fires.
+
+Run:
+    python manage.py seed_follow_velocity
+    python manage.py seed_follow_velocity --clear
+"""
+
+from django.utils import timezone
+from datetime import timedelta
+from django.core.management.base import BaseCommand
+
+from apps.user.models import Follow
+from ._bot_helpers import make_user, clear_by_tag, backdate
+
+EXTRA_TAG = "follow_velocity.seedbot.test"
+
+
+class Command(BaseCommand):
+    help = "Seed a user following 20+ accounts within an hour."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        self.stdout.write(self.style.NOTICE("Seeding follow-velocity bot..."))
+
+        bot = make_user(
+            username="follower_real",
+            bio="Connecting with lots of people.",
+            with_pic=True,
+            extra_tag=EXTRA_TAG,
+        )
+
+        # Create 25 targets and follow them all, spread across ~50 minutes
+        # (so it stays within the 60-min window but OUTSIDE the 5-min burst
+        # window — isolating follow-velocity from activity-burst).
+        now = timezone.now()
+        for i in range(25):
+            target = make_user(
+                username=f"fv_target_{i}",
+                bio="A target.",
+                with_pic=True,
+                extra_tag=EXTRA_TAG,
+            )
+            f = Follow.objects.create(follower=bot, following=target)
+            # Spread: 2 minutes apart → 25 follows over ~48 min.
+            backdate(f, now - timedelta(minutes=2 * i))
+
+        self.stdout.write(self.style.SUCCESS(
+            "\nDone. 'follower_real' followed 25 accounts within the hour "
+            "(spread out) → check_follow_velocity only."
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_ml_spam.py">
+"""
+Targets the Naive Bayes checks (check_spam_comments / check_spam_bio) with
+text the trained model recognizes CONFIDENTLY as spam.
+
+Why a new command: the older seed_ml_spam used very subtly-worded comments
+that the SMS-trained model scored below the 0.8 threshold, so the per-comment
+spam_count never reached 2 and nothing fired. This version uses spam phrased
+in the style the model was actually trained on (prizes, urgency, "claim",
+"winner", "cash now") — which it flags with high confidence — while still
+AVOIDING the hardcoded SpamPhrase entries, so it remains a CLASSIFIER-only
+demo (no phrase-list overlap).
+
+Each bot gets 4 such comments (threshold is 2), so even if one scores low,
+the count still clears. Clean usernames + spammy bios; profile is complete
+so only the ML checks fire.
+
+Run:
+    python manage.py seed_ml_classifier
+    python manage.py seed_ml_classifier --clear
 """
 
 from django.core.management.base import BaseCommand
@@ -629,76 +1133,80 @@ from django.core.management.base import BaseCommand
 from apps.posts.models import Post, Comment
 from ._bot_helpers import make_user, clear_by_tag
 
-EXTRA_TAG = "mlspam.seedbot.test"
+EXTRA_TAG = "ml_classifier.seedbot.test"
 
-# Each bot: a clean human-style username, a spammy bio (novel wording),
-# and several DISTINCT spam comments (distinct so the near-duplicate /
-# repeated-comment checks don't fire either — isolating the classifier).
-ML_SPAM_BOTS = [
+# Spam in the SMS-corpus style the model knows well — high-confidence spam,
+# but none of these are in the hardcoded SpamPhrase list (verify against
+# yours). Each bot gets 4 so spam_count comfortably clears the threshold.
+ML_BOTS = [
     {
-        "username": "vaaaali",
-        "bio": "Helping everyday people unlock extraordinary earnings from "
-               "home. Real results, no experience required.",
+        "username": "jenna_morris",
+        "bio": "Congratulations! You have been selected to claim your free "
+               "reward, text YES now to receive it.",
         "comments": [
-            "Earn a reliable second income from the comfort of your home, "
-            "message me for the simple steps.",
+            "URGENT: You have won a cash prize of 1000, call now to claim "
+            "before it expires.",
+            "Congratulations, your number was selected to receive a free "
+            "reward, reply to claim now.",
             "You have been chosen to receive a special cash bonus, respond "
-            "now to secure your spot.",
-            "Turn your spare time into serious weekly earnings with our "
-            "trusted program, only a few openings left.",
+            "now to secure it.",
+            "Final notice: claim your guaranteed prize today, text the code "
+            "to the number below.",
         ],
     },
     {
-        "username": "valicelVali",
-        "bio": "Wealth mentor. Ask me how I replaced my full salary in just "
-               "ninety days working part time.",
+        "username": "kevin_blake",
+        "bio": "WINNER! Your account qualifies for an exclusive cash reward, "
+               "claim before midnight tonight.",
         "comments": [
-            "Our proven system has helped thousands escape the nine to five, "
-            "reply if you want in.",
-            "A brand new device is reserved under your name, confirm before "
-            "midnight to receive it.",
-            "Stop trading hours for pennies, our members make more in a week "
-            "than most do in a month.",
+            "You have been awarded a bonus prize, call this number now to "
+            "collect your winnings.",
+            "Claim your free gift card now, you have been selected as today's "
+            "lucky winner.",
+            "Your mobile number won a prize draw, text CLAIM now to receive "
+            "your reward.",
+            "Act now to receive your guaranteed cash bonus before the offer "
+            "expires tonight.",
         ],
     },
     {
-        "username": "altVali",
-        "bio": "Showing busy mums how to bring in extra cash on the side "
-               "without leaving the house.",
+        "username": "laura_finch",
+        "bio": "You have a pending reward waiting. Reply CLAIM to receive your "
+               "free prize today.",
         "comments": [
-            "Limited slots remaining in our exclusive earnings circle, "
-            "send me a message to join today.",
-            "Congratulations, your account qualifies for a generous welcome "
-            "reward, act fast before it expires.",
-            "Double your savings safely with the same plan our top members "
-            "use every single month.",
+            "Congratulations you are our winner today, call now to claim your "
+            "cash prize before it ends.",
+            "Free entry confirmed: you have won, text the code now to collect "
+            "your reward instantly.",
+            "Your number has been selected for a guaranteed bonus, reply now "
+            "to claim your winnings.",
+            "Limited time: claim your free cash reward now, call the number "
+            "to receive it today.",
         ],
     },
     {
-        "username": "vali",
-        "bio": "Ex teacher now full time online earner. Ask how you can do "
-               "the same starting this week.",
+        "username": "danny_reed",
+        "bio": "Selected winner of this week's cash giveaway. Text now to "
+               "claim your guaranteed reward.",
         "comments": [
-            "Make your money work for you with our simple step by step "
-            "method, openings are filling quickly.",
-            "You were handpicked for an early access wealth opportunity, "
-            "reply to claim your place.",
-            "Tired of living paycheck to paycheck? Our system changes that "
-            "in weeks, ask me how.",
+            "URGENT reply needed: you have won a prize, call now to claim "
+            "your reward before midnight.",
+            "You are today's lucky winner, text YES now to receive your free "
+            "cash bonus instantly.",
+            "Your account won a special reward, reply CLAIM now to collect "
+            "your winnings today.",
+            "Congratulations, claim your guaranteed prize now before this "
+            "final offer expires.",
         ],
     },
 ]
 
 
 class Command(BaseCommand):
-    help = "Seed bots with novel-worded spam (classifier demo)."
+    help = "Seed bots with high-confidence classifier spam (Naive Bayes demo)."
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            '--clear',
-            action='store_true',
-            help='Delete previously seeded ML-spam accounts.',
-        )
+        parser.add_argument('--clear', action='store_true')
 
     def handle(self, *args, **options):
         if options['clear']:
@@ -706,54 +1214,527 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(self.style.NOTICE(
-            "Seeding ML-spam demo bots (novel wording, no hardcoded phrases)..."
+            "Seeding Naive Bayes classifier demo bots..."
         ))
 
-        # The spam comments need a post to attach to. Use any existing post,
-        # or create a neutral host post if none exist.
         host_post = Post.objects.exclude(
-            author__email__icontains="mlspam.seedbot.test"
+            author__email__icontains="seedbot.test"
         ).first()
-
         if host_post is None:
-            # No posts at all — make one owned by the first bot so comments
-            # have somewhere to live.
-            first_bot = make_user(
-                username=ML_SPAM_BOTS[0]["username"],
-                bio=ML_SPAM_BOTS[0]["bio"],
+            first = make_user(
+                username=ML_BOTS[0]["username"],
+                bio=ML_BOTS[0]["bio"],
                 with_pic=True,
                 extra_tag=EXTRA_TAG,
             )
             host_post = Post.objects.create(
-                author=first_bot,
-                title="A normal looking post",
-                content="Just sharing something today.",
+                author=first, title="A normal post", content="Just sharing."
             )
 
-        for data in ML_SPAM_BOTS:
+        for data in ML_BOTS:
             user = make_user(
                 username=data["username"],
                 bio=data["bio"],
-                with_pic=True,   # clean profile — so profile check won't fire
+                with_pic=True,      # complete profile — isolate the ML checks
                 extra_tag=EXTRA_TAG,
             )
-
             for text in data["comments"]:
                 Comment.objects.get_or_create(
-                    author=user,
-                    post=host_post,
-                    content=text,
+                    author=user, post=host_post, content=text
                 )
-
             self.stdout.write(
-                f"  Created '{data['username']}' with spammy bio + "
-                f"{len(data['comments'])} novel-spam comments."
+                f"  Created '{data['username']}' "
+                f"({len(data['comments'])} spam comments + spam bio)"
             )
 
         self.stdout.write(self.style.SUCCESS(
-            f"\nDone. Created {len(ML_SPAM_BOTS)} ML-spam bots.\n"
-            "Recompute, then check: these should be flagged by the CLASSIFIER "
-            "(ML_SPAM_COMMENT / ML_SPAM_BIO), NOT by the phrase list."
+            "\nDone. Recompute → these flag on ML_SPAM_COMMENT / ML_SPAM_BIO.\n"
+            "If they still don't fire, run the per-text probability check "
+            "and lower SPAM_CLASSIFIER_THRESHOLD, or restart the server "
+            "(stale cached model)."
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_near_duplicate_comments.py">
+"""
+Targets check_near_duplicate_comments (TF-IDF + cosine). Comments are
+REWORDED variants of the same message — NOT byte-identical, so the exact
+repeated-comment check misses them, but cosine similarity catches the
+near-duplicate pattern. Needs 2+ similar pairs, 3+ comments minimum.
+
+This is the demo that justifies TF-IDF over exact matching.
+
+Run:
+    python manage.py seed_near_duplicate_comments
+    python manage.py seed_near_duplicate_comments --clear
+"""
+
+from django.core.management.base import BaseCommand
+from apps.posts.models import Post
+from ._bot_helpers import make_user, make_comment, clear_by_tag
+
+EXTRA_TAG = "near_dup_comments.seedbot.test"
+
+# Same meaning, slightly reworded each time → high cosine similarity,
+# zero exact duplicates.
+COMMENTS = [
+    "Check out my page for amazing deals you can't miss today",
+    "Check out my profile for amazing deals you don't want to miss today",
+    "Visit my page for the amazing deals you can't miss right now",
+    "Have a look at my page for amazing deals you shouldn't miss today",
+]
+
+
+class Command(BaseCommand):
+    help = "Seed reworded near-duplicate comments (TF-IDF cosine)."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        self.stdout.write(self.style.NOTICE("Seeding near-duplicate-comment bot..."))
+
+        bot = make_user(
+            username="reworder_real",
+            bio="Sharing the best finds with everyone.",
+            with_pic=True,
+            extra_tag=EXTRA_TAG,
+        )
+
+        host_post = Post.objects.exclude(
+            author__email__icontains="seedbot.test"
+        ).first()
+        if host_post is None:
+            host_post = Post.objects.create(
+                author=bot, title="A post", content="Some content here."
+            )
+
+        for text in COMMENTS:
+            make_comment(bot, host_post, text)
+
+        self.stdout.write(self.style.SUCCESS(
+            "\nDone. 'reworder_real' posted reworded duplicates → "
+            "check_near_duplicate_comments (TF-IDF). No exact repeats."
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_profile_incomplete.py">
+"""
+Targets check_profile_completeness: no picture AND no bio.
+
+Usernames are clean and human-looking so ONLY the profile check fires —
+isolating it.
+
+Run:
+    python manage.py seed_profile_incomplete
+    python manage.py seed_profile_incomplete --clear
+"""
+
+from django.core.management.base import BaseCommand
+from ._bot_helpers import make_user, clear_by_tag
+
+EXTRA_TAG = "profile_incomplete.seedbot.test"
+
+USERNAMES = ["emptyone", "blankuser", "noinfohere", "quietaccount"]
+
+
+class Command(BaseCommand):
+    help = "Seed accounts with no bio and no picture (check_profile_completeness)."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        self.stdout.write(self.style.NOTICE("Seeding incomplete-profile accounts..."))
+        for name in USERNAMES:
+            make_user(
+                username=name,
+                bio=None,            # no bio
+                with_pic=False,      # no pic
+                extra_tag=EXTRA_TAG,
+            )
+            self.stdout.write(f"  Created '{name}' (empty profile)")
+        self.stdout.write(self.style.SUCCESS(
+            "\nDone. Recompute → these flag on incomplete profile."
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_regular_rythm.py">
+"""
+Targets check_regular_rhythm: 5+ actions spaced almost EXACTLY evenly
+(low standard deviation of gaps) with a short average gap. Humans are
+irregular; bots on a timer are mechanically even.
+
+We backdate actions to be exactly 60s apart → near-zero stddev, well under
+RHYTHM_STDDEV_THRESHOLD (2.0s) and under RHYTHM_MAX_AVG_GAP_SECONDS (120s).
+
+Run:
+    python manage.py seed_regular_rhythm
+    python manage.py seed_regular_rhythm --clear
+"""
+
+from django.utils import timezone
+from datetime import timedelta
+from django.core.management.base import BaseCommand
+
+from ._bot_helpers import make_user, make_post, clear_by_tag
+
+EXTRA_TAG = "regular_rhythm.seedbot.test"
+
+
+class Command(BaseCommand):
+    help = "Seed a user posting at perfectly even intervals (mechanical rhythm)."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        self.stdout.write(self.style.NOTICE("Seeding mechanical-rhythm bot..."))
+
+        bot = make_user(
+            username="metronome_real",
+            bio="Posting regular updates.",
+            with_pic=True,
+            extra_tag=EXTRA_TAG,
+        )
+
+        # 8 posts, each EXACTLY 60 seconds apart → stddev ~0.
+        # Distinct content so duplicate checks stay quiet.
+        now = timezone.now()
+        for i in range(8):
+            make_post(
+                bot,
+                f"Scheduled update {i}",
+                f"Automated-looking distinct content piece {i}.",
+                created_at=now - timedelta(seconds=60 * i),
+            )
+
+        self.stdout.write(self.style.SUCCESS(
+            "\nDone. 'metronome_real' posted 8x at exactly 60s intervals → "
+            "check_regular_rhythm (near-zero timing variation)."
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_repeated_comments.py">
+"""
+Targets check_repeated_comments: the SAME comment text posted 3+ times.
+
+Distinct from the TF-IDF near-duplicate check — this is exact repetition.
+Clean username + complete profile so only this check fires.
+
+Run:
+    python manage.py seed_repeated_comments
+    python manage.py seed_repeated_comments --clear
+"""
+
+from django.core.management.base import BaseCommand
+from apps.posts.models import Post
+from ._bot_helpers import make_user, make_comment, clear_by_tag
+
+EXTRA_TAG = "repeated_comments.seedbot.test"
+
+
+class Command(BaseCommand):
+    help = "Seed a user posting the exact same comment many times."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        self.stdout.write(self.style.NOTICE("Seeding repeated-comment bot..."))
+
+        bot = make_user(
+            username="repeater_real",
+            bio="Big fan of this community.",
+            with_pic=True,
+            extra_tag=EXTRA_TAG,
+        )
+
+        # Need a post to comment on. Use any existing one, else make one.
+        host_post = Post.objects.exclude(
+            author__email__icontains="seedbot.test"
+        ).first()
+        if host_post is None:
+            host_post = Post.objects.create(
+                author=bot, title="A post", content="Some content here."
+            )
+
+        # Same exact text 5 times (threshold is 3).
+        text = "Love this, keep up the great work!"
+        for _ in range(5):
+            make_comment(bot, host_post, text)
+
+        self.stdout.write(self.style.SUCCESS(
+            "\nDone. 'repeater_real' posted the same comment 5x → "
+            "check_repeated_comments."
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_shared_ip.py">
+
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_spam_phrases.py">
+"""
+Targets check_spam_phrases: a comment or bio containing a known spam phrase
+from the SpamPhrase table.
+
+NOTE: depends on populate_patterns having seeded the SpamPhrase table.
+The phrases below assume common entries exist ('click here', 'free money').
+Verify against your actual table and adjust.
+
+Run:
+    python manage.py seed_spam_phrases
+    python manage.py seed_spam_phrases --clear
+"""
+
+from django.core.management.base import BaseCommand
+from apps.posts.models import Post
+from ._bot_helpers import make_user, make_comment, clear_by_tag
+
+EXTRA_TAG = "spam_phrases.seedbot.test"
+
+
+class Command(BaseCommand):
+    help = "Seed accounts whose comment/bio contains a known spam phrase."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        self.stdout.write(self.style.NOTICE("Seeding spam-phrase accounts..."))
+
+        # One flags via comment, one via bio — both paths of the check.
+        comment_bot = make_user(
+            username="phrasecomment_real",
+            bio="Normal looking bio here.",
+            with_pic=True,
+            extra_tag=EXTRA_TAG,
+        )
+        bio_bot = make_user(
+            username="phrasebio_real",
+            bio="Click here to win free money now!",   # phrase in bio
+            with_pic=True,
+            extra_tag=EXTRA_TAG,
+        )
+
+        host_post = Post.objects.exclude(
+            author__email__icontains="seedbot.test"
+        ).first()
+        if host_post is None:
+            host_post = Post.objects.create(
+                author=comment_bot, title="A post", content="Content."
+            )
+
+        make_comment(comment_bot, host_post,
+                     "Click here to claim your free money now!")
+
+        self.stdout.write(self.style.SUCCESS(
+            "\nDone. One flags via comment phrase, one via bio phrase. "
+            "Verify the phrases exist in your SpamPhrase table."
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_username_blocklist.py">
+"""
+Targets check_username_blocklist (exact substring + fuzzy Levenshtein).
+
+The exact ones contain a blocklisted term outright; the fuzzy ones are a
+small edit-distance away from a blocklisted term (obfuscated spelling),
+proving the Levenshtein fuzzy match catches near-misses.
+
+NOTE: this depends on your BlocklistTerm table being populated
+(populate_patterns). The fuzzy examples assume common terms like 'crypto',
+'casino', 'promo' exist — adjust to match your actual blocklist.
+
+Run:
+    python manage.py seed_username_blocklist
+    python manage.py seed_username_blocklist --clear
+"""
+
+from django.core.management.base import BaseCommand
+from ._bot_helpers import make_user, clear_by_tag
+
+EXTRA_TAG = "uname_blocklist.seedbot.test"
+
+# Clean letters only (no digits) so check_username_pattern stays quiet —
+# isolating the blocklist check.
+EXACT = [
+    "cryptoking",      # contains 'crypto'
+    "casinoroyale",    # contains 'casino'
+    "bestpromodeals",  # contains 'promo'
+]
+FUZZY = [
+    "cryptoo",         # 1 edit from 'crypto'
+    "casin0royale",    # 'casino' with o->0 obfuscation (edit distance)
+    "promol",          # close to 'promo'
+]
+
+
+class Command(BaseCommand):
+    help = "Seed blocklist-matching usernames (exact + fuzzy Levenshtein)."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        self.stdout.write(self.style.NOTICE("Seeding blocklist usernames..."))
+        for name in EXACT + FUZZY:
+            make_user(
+                username=name,
+                bio="Sharing deals and updates daily.",
+                with_pic=True,
+                extra_tag=EXTRA_TAG,
+            )
+            self.stdout.write(f"  Created '{name}'")
+        self.stdout.write(self.style.SUCCESS(
+            "\nDone. Exact names flag on substring match; fuzzy names flag on "
+            "Levenshtein distance. Verify against your populated blocklist."
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_username_cluster.py">
+"""
+Targets check_username_cluster (shared digit-stripped stem) AND
+check_fuzzy_username_cluster (Levenshtein-close names). Threshold is 3+.
+
+- EXACT cluster: many accounts share one stem after stripping trailing
+  digits ('target_0', 'target_1', ... all stem to 'target').
+- FUZZY cluster: names that are edit-distance-close to each other but don't
+  share an exact stem ('farmbot', 'farmb0t', 'farmb0t', 'farnbot').
+
+These accounts WILL also trip check_username_pattern (they contain digits) —
+that overlap is inherent to clustered bot names and is noted, not a bug.
+
+Run:
+    python manage.py seed_username_cluster
+    python manage.py seed_username_cluster --count 6
+    python manage.py seed_username_cluster --clear
+"""
+
+from django.core.management.base import BaseCommand
+from ._bot_helpers import make_user, clear_by_tag
+
+EXTRA_TAG = "uname_cluster.seedbot.test"
+
+FUZZY_NAMES = ["farmbot", "farmb0t", "farnbot", "farmbol", "tarmbot"]
+
+
+class Command(BaseCommand):
+    help = "Seed username clusters (exact-stem + fuzzy Levenshtein)."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--count', type=int, default=5,
+                            help='Exact-stem cluster size (default 5).')
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        count = options['count']
+        self.stdout.write(self.style.NOTICE("Seeding username clusters..."))
+
+        # Exact-stem cluster: target_0 .. target_N all stem to 'target'.
+        for i in range(count):
+            make_user(
+                username=f"target_{i}",
+                bio="Account number " + str(i),
+                with_pic=True,
+                extra_tag=EXTRA_TAG,
+            )
+        self.stdout.write(f"  Created exact-stem cluster of {count} ('target_*').")
+
+        # Fuzzy cluster: Levenshtein-close but distinct stems.
+        for name in FUZZY_NAMES:
+            make_user(
+                username=name,
+                bio="Just here to browse.",
+                with_pic=True,
+                extra_tag=EXTRA_TAG,
+            )
+        self.stdout.write(f"  Created fuzzy cluster of {len(FUZZY_NAMES)} ('farmbot'-like).")
+
+        self.stdout.write(self.style.SUCCESS(
+            "\nDone. 'target_*' flag on exact-stem cluster; 'farmbot'-like flag "
+            "on fuzzy cluster. (They also trip username_pattern — expected.)"
+        ))
+</file>
+
+<file path="apps/bot_detection/management/commands/seed_username_pattern.py">
+"""
+Targets check_username_pattern: usernames that are digit-heavy (>=40% digits)
+or end in 4+ digits look auto-generated.
+
+Each account gets a clean bio + pic so ONLY the username check fires
+(profile-completeness stays quiet). Isolated demo.
+
+Run:
+    python manage.py seed_username_pattern
+    python manage.py seed_username_pattern --clear
+"""
+
+from django.core.management.base import BaseCommand
+from ._bot_helpers import make_user, clear_by_tag
+
+EXTRA_TAG = "uname_pattern.seedbot.test"
+
+USERNAMES = [
+    "user82910",       # mostly digits
+    "x9k2j8401",       # digit-heavy + random
+    "john88472",       # trailing 5 digits
+    "bot00001",        # trailing digits
+    "a1b2c3d4e5",      # 50% digits
+]
+
+
+class Command(BaseCommand):
+    help = "Seed digit-heavy usernames (check_username_pattern)."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--clear', action='store_true')
+
+    def handle(self, *args, **options):
+        if options['clear']:
+            clear_by_tag(EXTRA_TAG, self.stdout, self.style)
+            return
+
+        self.stdout.write(self.style.NOTICE("Seeding digit-heavy usernames..."))
+        for name in USERNAMES:
+            make_user(
+                username=name,
+                bio="Just an ordinary account sharing thoughts.",
+                with_pic=True,           # keep profile complete — isolate the check
+                extra_tag=EXTRA_TAG,
+            )
+            self.stdout.write(f"  Created '{name}'")
+        self.stdout.write(self.style.SUCCESS(
+            "\nDone. Recompute → these should flag on username pattern only."
         ))
 </file>
 

@@ -3,7 +3,7 @@ from rest_framework.throttling import UserRateThrottle
 from .services import EventLogger
 
 
-class LoggingUserRateThrottle(UserRateThrottle):
+class LoggingUserRateThrottle(UserRateThrottle):# logs the thorttle in the database
     def allow_request(self, request, view):
         self.request = request
         return super().allow_request(request, view)
